@@ -12,9 +12,9 @@
 
 //////////////////// SIGNALBOX SELECTION ////////////////////
 // uncomment ONE of these defines for Shildon, noble or middleton
-#define __SHILDONBOX__
+//#define __SHILDONBOX__
 // #define __NOBLEBOX__
-//#define __MIDDLETONBOX__
+#define __MIDDLETONBOX__
 
 //////////////////// Port information ///////////////////
 #define baudrate 9600
