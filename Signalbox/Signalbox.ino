@@ -1,424 +1,253 @@
 /*
- * Slave modbus Railway Signal (servo controlled arms) program
- * Intended for the Arduino/Genuino Micro/Leonardo board
- * Uses Simple-Modbus Library
+ * Middleton Box
+ * Arduino Sketch for Arduino/Genuino Mega 2560
+ * Uses Simple-Modbus Master Library
  *
  * GL5 Mainline Association, Signal Project (for Shildon Museum display March 2016)
  *
- * 2016
- *
- * https://github.com/jesusgollonet/ofpennereasing/tree/master/PennerEasing
-
-TERMS OF USE - EASING EQUATIONS
-Open source under the BSD License http://www.opensource.org/licenses/bsd-license.php
-
-Copyright © 2001 Robert Penner
-All rights reserved.
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-Redistributions of source code must retain the above copyright notice,
-this list of conditions and the following disclaimer.
-Redistributions in binary form must reproduce the above copyright notice,
-this list of conditions and the following disclaimer in the documentation and/or
-other materials provided with the distribution.
-Neither the name of the author nor the names of contributors may be used to
-endorse or promote products derived from this software without specific
-prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS
-AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
-INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN
-NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
-OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
-STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
-IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.
-
  */
-#include <SimpleModbusSlave.h>
-#include <Servo.h>
+// Simple Modbus Masster Library
+#include <SimpleModbusMaster.h>
 
-// set to 1 for debugging over serial Monitor, 0 in normal operations
-//#define DEBUG 0
+//////////////////// Port information ///////////////////
+#define baudrate 9600
+//#define timeout 1000
+#define timeout 500
+// #define polling 200 // the scan rate
+// knock this down real low for many bus members
+#define polling 100 // the scan rate
+#define retry_count 2
 
-static const long baudrate = 9600;    // baudrate, probably best not to fiddle
-static const unsigned char TEpin = 2; // transmit enable pin
-
-// Configuration variables
-const int servoStartuS = 700; // start uS of servo range (=0  degrees), only change in line with servo performance
-const int servoEnduS = 2301;  // end uS   of servo range (=180 dgrees), only change in line with servo performance
-
-// Do not drive servo's beyond this angle, set with care.
-const unsigned int DRIVELIMIT = 45;
-
-// Default angle to send signals to for "OFF"
-const unsigned int DRIVEANGLE = 45;
-
-const unsigned int NUMARMS = 4;
-
-unsigned char sID = 1;  // Initial Slave ID before setting with DIP switch
-
-const int upTransitionTimemS = 1700;    // time allowed in milliseconds for off/up transition
-const int downTransitionTimemS = 1500;  // time allowed in milliseconds for down/on transition
-// end
-
-// define "EasingFunc" callback function
-// you can make your own of these to use
-// t: current time, b: beginning value, c: change in value, d: duration
-// t and d can be in frames or seconds/milliseconds
-//
-float (*EasingFunc)(float t, float b, float c, int d);
+// used to toggle the receive/transmit pin on the driver
+#define TxEnablePin 2
 
 // Map pins in array later from integers
-static const uint8_t analog_pins[] = {A0, A1, A2, A3, A4, A5};
+static const uint8_t apins[] = {A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15};
 
-//////////////// registers of the slave ///////////////////
-enum
-{
-  // just add or remove registers and your good to go...
-  // The first register starts at address 0
-  ARM1POS,
-  ARM2POS,
-  ARM3POS,
-  ARM4POS,
-  ARM1REQ,
-  ARM2REQ,
-  ARM3REQ,
-  ARM4REQ,
-  NUMREGISTERS // leave this one
-  // total number of registers for function 3 and 16 share the same register array
-  // i.e. the same address space
+// Default angle to send signals to for "OFF"
+const unsigned int DRIVEANGLE = 155;
+
+// Middleton
+enum {
+  M1,
+  M2,
+  M3,
+  M4,
+  M5,
+  M6,
+  M7,
+  M8,
+  M9,
 };
 
-Servo arm[NUMARMS];
-unsigned int registers[NUMREGISTERS]; // function 3 and 16 register array
+// Noble
+enum {
+  N1,
+  N2,
+  N3,
+  N5,
+  N6,
+  N7,
+  N8,
+};
 
-void setup() {
-  int startPosuS = 1500;  // starting position for arms
+// Shildon
+enum {
+  S1,
+  S3,
+};
 
-  //start serial
+/*
+// Copy the relevent 'box definition to signalarms below
+
+// POST, SIGNAL NUMBER, ARM NUMBER, INPUT, ON LED pin, OFF LED pin
+const unsigned int NUMPOSTS 5;
+const unsigned int noblearms[7][6] = {
+  {1, N3, 1, 1, 34, 35},
+  {1, N6, 2, 6, 36, 37},
+  {1, N1, 3, 1, 30, 31},
+  {2, N7, 1, 7, 40, 41},
+  {3, N8, 1, 8, 42, 43},
+  {4, N5, 2, 5, 36, 37},
+  {5, N2, 1, 2, 32, 33},
+};
+
+const unsigned int NUMPOSTS = 7;
+const unsigned int middlearms[8][6] = {
+  {1, M1, 1, 1, 30, 31},
+  {2, M4, 1, 4, 36, 37},
+  {3, M2, 1, 2, 32, 33},
+  {4, M7, 1, 7, 42, 43},
+  {4, M6, 2, 6, 40, 41},
+  {5, M3, 1, 3, 34, 35},
+  {6, M8, 1, 8, 44, 45},
+  {7, M9, 1, 9, 46, 47},
+};
+
+const unsigned int NUMPOSTS = 2;
+const unsigned int shildonarms[2][6] {
+  {1, N1, 1, 1, 30, 31},
+  {2, N2, 2, 2, 32, 33}
+};
+*/
+
+
+// POST, SIGNAL NUMBER, ARM NUMBER, INPUT (analog pin A#), ON LED, OFF LED, Drive angle?
+const unsigned int signalarms[8][6] = {
+  {1, M1, 1, 1, 30, 31},
+  {2, M4, 1, 4, 36, 37},
+  {3, M2, 1, 2, 32, 33},
+  {4, M7, 1, 7, 42, 43},
+  {4, M6, 2, 6, 40, 41},
+  {5, M3, 1, 3, 34, 35},
+  {6, M8, 1, 8, 44, 45},
+  {7, M9, 1, 9, 46, 47},
+};
+
+const unsigned int NUMPOSTS = 7;  // could be calculated, just not at this point
+const unsigned int NUMARMS = (sizeof(signalarms) / sizeof(int)) / 6;
+
+// The total amount of available memory on the master to store data
+const int TOTAL_NO_OF_REGISTERS = (NUMARMS * 8);
+const int TOTAL_NO_OF_PACKETS = (NUMARMS * 2);
+
+// Create an array of Packets to be configured
+Packet packets[TOTAL_NO_OF_PACKETS];
+
+// Masters register array
+unsigned int regs[TOTAL_NO_OF_REGISTERS];
+
+void setup()
+{
+  int offPins[NUMARMS];  // for intialisation indications
+  int onPins[NUMARMS];
+
 #ifdef DEBUG
   // comms with host PC
   Serial.begin(9600);
+  // give us a chance to get the serial line open!
+  delay(2000);
 #endif
 
-  // input SlaveID setting switches, start from A0
-  for (int i = 0; i <= 5; i++) {
-    // Avoid requirement for external resistor
-    // reverse HIGH LOW on read
-    pinMode(analog_pins[i], INPUT_PULLUP);
-  }
+  // SETUP Indicator lines
+  // Signal arm ON  LED lines 31 to 51 (red, odd)
+  // Signal arm OFF LED lines 30 to 50 (green, even)
+  // SETUP packets for each post
+  // read lower registers for confirmation (done in groups of 4)
+  for ( int i = 0, j = 0; i < NUMPOSTS; i++, j += 2) {
+    // INPUT lines
+    pinMode(apins[signalarms[i][3]], INPUT_PULLUP);
+    // ON indicator (red LED)
+    onPins[i] = signalarms[i][4];
+    pinMode(onPins[i], OUTPUT);
+    digitalWrite(onPins[i], HIGH);  // proving indicator, will be set later
+    // OFF indicator (green LED)
+    offPins[i] = signalarms[i][5];
+    pinMode(offPins[i], OUTPUT);
+    digitalWrite(offPins[i], HIGH);  // proving indicator, will be set later
 
-  // setup manual control switches and servos
-  // PWM pins on the Micro are 3,5,6,9,10,11,13
-  // therefore we'll take:
-  //  5 and  6, controlled by external switches 3 and 4
-  //  9 and 10, controlled by external switches 7 and 8
-  for (int i = 0, j = 0; i < NUMARMS; i++) {
-    if (i == 2) {
-      j += 2;
+    int postid = (i + 1);
+    // set up post communication warning LEDs starting from pin 22
+    pinMode((22 + i), OUTPUT);
+    digitalWrite((22 + i), HIGH);  // proving and setting indicator, will be reset on communication
+
+    // post is counting from 0 so post 1 is 0 in this loop, no need to decrement
+    int regStart = (i * 8);
+
+    // initialise register values to 0
+    for (int k = regStart; k < (regStart+8); k++) {
+      regs[k] = 0;
     }
-
-    // switches to be brought to ground for arm to come "Off"
-    pinMode(i + j + 3, INPUT_PULLUP); // 3,4 - 7 and 8
-
-    // initialise read registers
-    registers[i] = 0;
-    // set request registers
-    registers[(i + 4)] = 0;
-
-    // reverse direction for odd-numbered (ie first servo, servos start at 0), reverse start and end values
-    startPosuS = (i % 2 == 1) ? servoEnduS : servoStartuS;
-
-    // drive all arms to start position.
-    arm[i].writeMicroseconds(startPosuS);
-    // attach servos to PWM pins
-    arm[i].attach((i + j + 5), servoStartuS, servoEnduS);         // 5,6 - 9 and 10
+    
+    // read registers
+    modbus_construct(&packets[j], postid, READ_HOLDING_REGISTERS, 0, 4, regStart);
+    // set upper registers
+    modbus_construct(&packets[j + 1], postid, PRESET_MULTIPLE_REGISTERS, 4, 4, (regStart + 4));
   }
 
-  delay(250);
+  // After setup set all indicator lines HIGH, then to typical positions.
+  // put a delay in so LED lines show on for a bit
+  delay(500);
 
-
-  // possible delay for Inputs to settle?
-  sID = readSlaveID();
-  /* parameters(HardwareSerial* SerialPort,
-                long baudrate,
-                unsigned char byteFormat,
-                unsigned char ID,
-                unsigned char transmit enable pin,
-                unsigned int holding registers size,
-                unsigned int* holding register array)
-  */
-  modbus_configure(&Serial1, baudrate, SERIAL_8N2, sID, TEpin, NUMREGISTERS, registers);
+  modbus_configure(&Serial, baudrate, SERIAL_8N2, timeout, polling, retry_count, TxEnablePin, packets, TOTAL_NO_OF_PACKETS, regs);
 }
 
-void loop() {
-  static int prevsID; // Retain previous Slave ID setting
-  int transitionTimemS = 1000;
-  bool AUTOMODE = true;
+void loop()
+{
+  modbus_update();
+  int incycle = 1;
 
-  // don't really need to call this every loop, just every now and again
-  sID = readSlaveID();
-  if (sID != prevsID) {
-    // modbus_update_comms(baud, byteFormat, id) is not needed but allows for easy update of the
-    // port variables and slave id dynamically in any function.
-    modbus_update_comms(baudrate, SERIAL_8N2, sID);
-  }
-  prevsID = sID;
-
-  int reqregidx = 4;
-  for (int i = 0, j = 0; i < NUMARMS; i++) {
-    modbus_update();
-    reqregidx = (i + 4);
-
-    // manual switch override
-    if (i == 2) {
-      j += 2;
-    }
-
-
-    // manual mode, if on go to driveangle, write back to read register
-    // if off, if request register is still high, stay high
-    // if off, if request register is low, set low
-
-    // manual override
-    if (digitalRead(i + j + 3) == LOW) {
-      AUTOMODE = false;
-      // write new indication to request register
-      registers[reqregidx] = DRIVEANGLE;
-      // otherwise return to auto
-    }
-    else {
-      AUTOMODE = true;
-    }
-
+  //  if (incycle == 1) {
+  int commsstate = 0;
+  for ( int h = 0, i = 0; h < NUMPOSTS; h++, i += 2) {
+    commsstate = packets[i].connection;
 #ifdef DEBUG
-    Serial.println("-------------------");
-    Serial.println("-------------------");
+    Serial.print("Packet : ");
     Serial.print(i);
-    Serial.print(" Manual line: ");
-    Serial.println(i + j + 3);
-    Serial.print(i);
-    Serial.print(" REQUEST (READ) Register value: ");
-    Serial.println(registers[reqregidx]);
+    Serial.print(", comms state: ");
+    Serial.println(commsstate);
 #endif
+    digitalWrite((22 + h), (commsstate ? LOW : HIGH));
+  }
+  incycle = 2;
+  // }
 
-    // if ON upTransitionTimemS, func select 1
-    // if ON downTransitionTimemS, func select 2
+  if (incycle == 2) {
+    // POST 1 read registers   0 -> 3
+    // POST 1 WRITE registers  4 -> 7
+    // POST 2 read registers   8 -> 11
+    // POST 2 WRITE registers 12 -> 15
+    // POST 3 read registers  16 -> 19
+    // POST 3 WRITE registers 20 -> 23
+    // POST 4 read registers  24 -> 27
+    // POST 4 WRITE registers 28 -> 31
 
-    // default ON down
-    int easingcurve = 2;
-    transitionTimemS = downTransitionTimemS;
-    // clear (OFF) up
-    if (registers[i] > 0) {
-      easingcurve = 1;
-      transitionTimemS = upTransitionTimemS;
-    }
+    // this means going through the ARMS eg A1 to A7
+    int sPinState = LOW;
+    int sArmState = 0;  // arm state ON (0) or OFF (>0)
+    int armidx = NUMARMS;
+    while (armidx) {
+      --armidx;
+      // read input lines A0 to A7...
+      sPinState = digitalRead(apins[signalarms[armidx][3]]);
 
+      int postIDtoUpdate = signalarms[armidx][0];
+      int regOffset = signalarms[armidx][2] - 1 ;  // ie the Arm on the post
+      int regStart = ((postIDtoUpdate - 1) * 8);
 
-    // only move if there is a change required
-    if (registers[reqregidx] != registers[i]) {
-      int readpos = moveArm(i, easingcurve, registers[reqregidx], transitionTimemS);
-
-      if (AUTOMODE) {
-        registers[i] = readpos;
-      }
-    }
-
-    if (registers[i] != registers[reqregidx] && AUTOMODE == false) {
-      // restore previous value
-      registers[reqregidx] = registers[i];
-    }
+      // GETTING (first set of 4 registers)
+      sArmState = regs[(regStart + regOffset)];
 
 #ifdef DEBUG
-    Serial.print(i);
-    Serial.print(" WRITE Register Value: ");
-    Serial.println(readpos);
-    Serial.println("-------------------");
-    Serial.println("-------------------");
+      Serial.print("Arm ID: ");
+      Serial.print(postIDtoUpdate);
+      Serial.print(", Label: ");
+      Serial.print(signalarms[armidx][1]);
+      Serial.print(", Arm #: ");
+      Serial.print(signalarms[armidx][2]);
+      Serial.print(", Input #: ");
+      Serial.print(signalarms[armidx][3]);
+      Serial.print("input status: ");
+      Serial.print(sPinState);
+      Serial.print(" Resgister Start: ");
+      Serial.print(regStart);
+      Serial.print(" Register Offset: ");
+      Serial.print(regOffset);
+      Serial.print(" Arm State: ");
+      Serial.print(sArmState);
+      Serial.print(" Set Reg: ");
+      Serial.println(registers[((regStart + 4) + regOffset)]);
+      Serial.println("------------------------------");
 #endif
 
+      digitalWrite(signalarms[armidx][4], ((sArmState == 0 )? HIGH : LOW));  // ON LED (red)
+      digitalWrite(signalarms[armidx][5], ((sArmState  > 0) ? HIGH : LOW)); // OFF LED (green)
 
-
-  }
-
-}
-
-//------------------------------------------------end main loop
-
-/**
-   Returns, where we got to (DRIVEANGLE)
-*/
-int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) {
-  int posnuS = 1500;          // current position of servo in microSeconds
-  unsigned long currentMillis = 0;
-
-  const unsigned int fromLow = 0;
-  const unsigned int fromHigh = 180;
-  int toLow = servoStartuS;
-  int toHigh = servoEnduS;
-
-  // reverse direction for odd-numbered servos, reverse start and end values
-  if (armI % 2 == 1) {
-    toLow = servoEnduS;
-    toHigh = servoStartuS;
-  }
-
-  unsigned int DRIVELIMITuS = map(DRIVELIMIT, fromLow, fromHigh, toLow, toHigh);
-  unsigned int destuS = map(destDegrees, fromLow, fromHigh, toLow, toHigh);
-
-  switch (armfuncselect) {
-    case 1:
-      EasingFunc = easeOutBounce;
-      break;
-    case 2:
-      EasingFunc = easeOutElastic;
-      break;
-    default:
-      EasingFunc = easeNone;
-  }
-
-  float startuS = arm[armI].readMicroseconds();
-
-  // drive limit here before calculating destination
-
-  // DO NOT go beyond absolute drive limit.
-  if (armI % 2 == 1) {
-    destuS = (destuS > DRIVELIMITuS) ? destuS : DRIVELIMITuS;
-  }
-  else {
-    destuS = (destuS < DRIVELIMITuS) ? destuS : DRIVELIMITuS;
-  }
-  float amountofchange = destuS - startuS;
-
-  currentMillis = millis();
-  unsigned long lastmodbusupdate, startloopMillis = currentMillis;
-
-  // re-attach arm
-  // arm[armNum].attach((armI += (armI > 2) ? 5 : 7), servoStartuS, servoEnduS);  // 5,6 - 9 and 10
-  while (currentMillis - startloopMillis < transitionTimemS) {
-    posnuS = (int)EasingFunc((currentMillis - startloopMillis), startuS, amountofchange, transitionTimemS);
-
-    if ((millis() - lastmodbusupdate) > 500) {
-      modbus_update();
-      lastmodbusupdate =  millis();
+      // SETTING (next set of 4 registers)
+      // if pin grounded (inverted on INPUT_PULLUP), set the relevant register
+      regs[((regStart + 4) + regOffset)] = ((sPinState == HIGH) ? 0 : 155); // degree to drive to
     }
 
-
-#ifdef DEBUG
-    Serial.print(armI);
-    Serial.print(" Drive to uS Position: ");
-    Serial.println(posnuS);
-    Serial.print(" Drive limit uS: ");
-    Serial.println(DRIVELIMITuS);
-    Serial.print(" Current Mill Seconds: (");
-    Serial.println(currentMillis);
-    Serial.println("-------------------");
-    // allow the serial line time to catch up
-    delay(250);
-#endif
-    arm[armI].writeMicroseconds(posnuS);              // tell servo to go to position in variable 'pos'
-    currentMillis = millis();
+    incycle = 1;
   }
-  // detach to stop jitter
-  // arm[armI].detach();
-
-  // return degrees,map microseconds to degreees
-  return map(arm[armI].readMicroseconds(),  toLow, toHigh, fromLow, fromHigh);
-}
-
-
-/** No easing applied, straight move
-
-*/
-inline float easeNone(float t, float b , float c, int d) {
-  return c * t / d + b;
-}
-
-
-/**
-   Easing function to simulate bounce
-   float t elapsed time (same units as for d ie: milliseconds or seconds)
-   float b initial value
-   float c amount of change (the final value minus the starting/initial value)
-   int d duration
-   Returns: float
-*/
-inline float easeOutBounce(float t, float b, float c, int d) {
-  if ((t /= d) < (1 / 2.75)) {
-    return c * (7.5625 * t * t) + b;
-  } else if (t < (2 / 2.75)) {
-    t -= 1.5 / 2.75;
-    return c * (7.5625 * t * t + 0.75) + b;
-  } else if (t < (2.5 / 2.75)) {
-    t -= 2.25 / 2.75;
-    return c * (7.5625 * t * t + 0.9375) + b;
-  } else {
-    t -= 2.625 / 2.75;
-    return c * (7.5625 * t * t + 0.984375) + b;
-  }
-}
-
-/**
-   Easing function to simulate lift up and fall back
-   !!! NOTE, will drive OVER/past endpoint and back !!!
-   float t elapsed time (same units as for d ie: milliseconds or seconds)
-   float b initial value
-   float c amount of change (the final value minus the starting/initial value)
-   int d duration
-   Returns: float
-*/
-inline float easeOutBack(float t, float b , float c, int d) {
-  float s = 1.70158f;
-  //return c*((t=t/d-1)*t*((s+1)*t + s) + 1) + b;
-  t = t / d - 1;
-  return c * (t * t * ((s + 1) * t + s) + 1) + b;
-}
-
-
-inline float easeOutElastic(float t, float b , float c, int d) {
-  if (t == 0) return b;  if ((t /= d) == 1) return b + c;
-  float p = d * .3f;
-  float a = c;
-  float s = p / 4;
-  return (a * pow(2, -10 * t) * sin( (t * d - s) * (2 * PI) / p ) + c + b);
-}
-
-
-/*
- * Name:
- */
-byte readSlaveID() {
-  // TODO: don't set slave to ID 0 (master address)
-
-  byte mask = 63; // 01000000
-  int i;
-  int temp = 0;
-  byte myDataIn = 0;
-
-  for (i = 0; i <= 5; i++) {
-    temp = digitalRead(analog_pins[i]);
-    // connecting to Ground with pull up resistor so reverse
-    if (temp == LOW) {
-      myDataIn = myDataIn | (1 << i);
-    }
-  }
-
-#ifdef DEBUG
-  Serial.print("SLAVE ID (BINARY): ");
-  Serial.print(myDataIn & mask, BIN);
-  Serial.print(", integer (");
-  Serial.print(myDataIn & mask);
-  Serial.println(")");
-  Serial.println("-------------------");
-  //delay so all these print satements can keep up.
-  //delay(500);
-#endif
-
-  return myDataIn & mask;
 }
