@@ -8,8 +8,6 @@
 // Simple Modbus Masster Library
 #include <SimpleModbusMaster.h>
 
-#define SIGNALBOX MIDDLETON
-
 // Modbus configurations
 #define baud 9600
 #define timeout 1000
@@ -18,12 +16,6 @@
 
 // used to toggle the receive/transmit pin on the driver
 #define TxEnablePin 2
-
-// Use this to tailor program for alternate board, eg UNO with less lines?
-#define TARGETBOARD Mega
-
-
-
 
 // Middleton
 enum {
@@ -60,18 +52,25 @@ struct ARMS {
   char signalNumber[4];
 };
 
-// char banana[4] = {"M1","M2","M3","m4"};
+// char banana[4] = {"M1","M2","M3","M4"};
 // if MIDDLETON
 struct ARMS one = { 1, {M1, M2, M3, M4} };
 
+
+// Signal Name,
+// Post number (slave ID),
+// Input line,
+// OFF LED indicator output
+// ON  LED indicator output
+
 int noblearms[7][5] = {
   {N3, 1, A1, 34, 35},
-  {N6, 1, A4, 36, 37},
+  {N6, 1, A6, 36, 37},
   {N1, 1, A1, 30, 31},
-  {N7, 2, A4, 40, 41},
-  {N8, 3, A1, 42, 43},
-  {N5, 3, A4, 36, 37},
-  {N2, 4, A1, 32, 33},
+  {N7, 2, A7, 40, 41},
+  {N8, 3, A8, 42, 43},
+  {N5, 3, A5, 36, 37},
+  {N2, 4, A2, 32, 33},
 };
 
 int middlearms[8][5] = {
@@ -90,89 +89,87 @@ int shildonarms[2][5] {
   {N2, 2, A2, 32, 33}
 };
 
-int myarms[(sizeof(shildonarms) / sizeof(int)) / 5][5];
-
-
-
-// NUMBER OF PACKETS is essentially the number of arms x2
-// One packet for setting the arms, the other for reading the arms
-
-// This is the easiest way to create new packets
-// Add as many as you want. TOTAL_NO_OF_PACKETS
-// is automatically updated.
-enum
-{
-  PACKET1,
-  PACKET3,
-  TOTAL_NO_OF_PACKETS // leave this last entry
+// POST, SIGNAL NUMBER, ARM NUMBER, INPUT, ON LED, OFF LED
+int signalarms[8][6] = {
+  {1, M1, 1, A1, 30, 31},
+  {2, M4, 1, A4, 36, 37},
+  {3, M2, 1, A2, 32, 33},
+  {4, M7, 1, A7, 42, 43},
+  {4, M6, 2, A6, 40, 41},
+  {5, M3, 1, A3, 34, 35},
+  {6, M8, 1, A8, 44, 45},
+  {7, M9, 1, A9, 46, 47},
 };
 
+int numposts = 7;
+int numarms = (sizeof(signalarms) / sizeof(int)) / 6;
+
 // Create an array of Packets to be configured
-Packet packets[TOTAL_NO_OF_PACKETS];
+// NUMBER OF PACKETS is essentially the number of posts x2
+// One packet for setting the arms, the other for reading the arms
+int TOTAL_NO_OF_PACKETS = (7 * 2);
+Packet packets[(7 * 2)];
 
 
 // Masters register array
 // The total amount of available memory on the master to store data
-// is number of arms x 2
-#define TOTAL_NO_OF_REGISTERS 5
-unsigned int regs[TOTAL_NO_OF_REGISTERS];
+// is number of posts x 2 x 4 (2 registers per arm, one read, one write, 4 per post)
+unsigned int registers[(7 * 2) * 4];
 
 static const uint8_t analog_inpins[] = {A1, A2, A3, A4, A5, A6, A7};
 
 void setup()
 {
-  // maximum number of arms we're dealing with
-  int numarms = 11;
-  int numposts = 7;
-  char name[] = "shildon";
-  enum {
-    shildon,
-    middleton
-  };
 
-  switch (shildon) {
-    case "shildon":
-      numarms = (sizeof(shildonarms) / sizeof(int))/5;
-      break;
-    case "middleton":
-      numarms = (sizeof(middleton) / sizeof(int))/5;
-      break;
-    default: 
-      // if nothing else matches, do the default
-      // default is optional
-    break;
-  }
 
-  for ( int i = 0 ; i < numarms / sizeof(int))/5 ; ++i ) {
-    for ( int j = 0 ; i < 5 ; ++i ) {
-      myarms[i][j] = shildonarms[i][j];
+  // setup Indicator lines
+  // Signal arm ON  LED lines 31 to 51 (red, odd)
+  // Signal arm OFF LED lines 30 to 50 (green, even)
+
+  for ( int i = 0 ; i < numarms; i++ ) {
+    for ( int j = 0 ; i < 5 ; i++ ) {
+      switch (j) {
+        case 0:
+          // post IDs
+          break;
+        case 1:
+          // Signal Number
+          break;
+        case 2:
+          // Arm Number
+          break;
+        case 3:
+          // input lines
+          pinMode(signalarms[i][j], INPUT_PULLUP);
+          break;
+        case 5:
+          // OFF indicator
+          pinMode(signalarms[i][j], OUTPUT);
+          break;
+        case 6:
+          // ON indicator (green LED)
+          pinMode(signalarms[i][j], OUTPUT);
+          break;
+      }
     }
   }
 
+  // setup packets for each post
+  // read lower registers for confirmation (done in groups of 4)
+  for ( int postid = 0, i = 0; postid < numposts; postid++, i += 2) {
+    // set up post communication warning LEDs starting from pin 22
+    pinMode((22 + i), OUTPUT);
+
+    int startreg = (postid - 1) * 8;
+    modbus_construct(&packets[i], postid, READ_HOLDING_REGISTERS, 0, 3, startreg);
+    // set upper registers
+    modbus_construct(&packets[i + 1], postid, PRESET_MULTIPLE_REGISTERS, 4, 7, startreg + 4);
+  }
   // comms with host PC
   Serial.begin(9600);
 
-
-
-  // Initialize each packet
-  modbus_construct(&packets[PACKET1], 7, READ_HOLDING_REGISTERS, 0, 1, 0);
-  //  modbus_construct(&packets[POST2SET], 1, PRESET_MULTIPLE_REGISTERS, 0, 3, 3);
-  modbus_construct(&packets[PACKET3], 7, PRESET_MULTIPLE_REGISTERS, 0, 1, 3);
-
   // Initialize the Modbus Finite State Machine
-  modbus_configure(&Serial1, baud, SERIAL_8N2, timeout, polling, retry_count, TxEnablePin, packets, TOTAL_NO_OF_PACKETS, regs);
-
-
-  // setup Indicator lines.
-  // large signalbox:
-  // Signal arm ON  LED lines 31 to 51 (red, odd)
-  // Signal arm OFF LED lines 30 to 50 (green, even)
-  // Comms fail LED for signal posts A1-A7
-
-  for (int i = 0; i <= numarms; i += 2) {
-    //
-    Serial.println("oi");
-  }
+  modbus_configure(&Serial1, baud, SERIAL_8N2, timeout, polling, retry_count, TxEnablePin, packets, TOTAL_NO_OF_PACKETS, registers);
 
   // After setup set all indicator lines HIGH, then to typical positions.
 
@@ -224,9 +221,54 @@ void loop()
     */
   Serial.println("--------");
 
+  // Set post Comms state, check packet, check only the read register packet per post
+  int commsstate = 0;
+  for ( int postid = 1, i = 0; postid <= numposts; postid++, i += 2) {
+    commsstate = packets[(postid * 2) - 1].connection;
+    //TODO: might have to invert the state here
+    digitalWrite((22 + postid), commsstate);
+    /*
+        int startreg = (postid - 1) * 8;
+        // read the four registers from the post
+        for (int regcount = 0; regcount < 4; regcount++) {
+          int armposval = 0;
+          armposval = registers[(startreg + regcount)];
+
+          // work out which arm this applies to.
+        }
+    */
+  }
+
 
   // Since we don't have enough interrupt pins, check the state of the INPUT pins
   // loop through arm array, check input value for that arm, set state based upon it.
 
+  // this means going through the ARMS eg A1 to A7
+  int sPinState = LOW;
+  int sArmState = 0;  // arm state ON (0) or OFF (>0)
+  int armidx = numarms;
+  while (armidx) {
+    --armidx;
+    // read input lines A0 to A7...
+    sPinState = digitalRead(signalarms[armidx][3]);
+
+    int postIDtoUpdate = signalarms[armidx][0];
+    int regtoUpdate = signalarms[armidx][2];
+
+    // GETTING
+    sArmState = registers[((postIDtoUpdate - 1) * 8) + regtoUpdate];
+    digitalWrite(signalarms[armidx][5], ((sArmState) ? : HIGH, LOW));  // ON LED (red)
+    digitalWrite(signalarms[armidx][6], ((!sArmState) ? : HIGH, LOW)); // OFF LED (green)
+
+    // SETTING
+    // if pin grounded, set the relevant register
+    registers[((postIDtoUpdate - 1) * 8) + 4 + regtoUpdate] = (sPinState == LOW) ? 0 : 155; // degree to drive to
+  }
+}
+
+/*
+// when given post ID and an arm register, return the output pin indicator pairs?
+void function getArmIndex(int &pinpair[], int pinpairsize, int postid) {
 
 }
+*/
