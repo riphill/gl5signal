@@ -44,7 +44,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <Servo.h>
 
 // set to 1 for debugging over serial Monitor, 0 in normal operations
-//#define DEBUG 0
+//#define DEBUG 1
 
 static const long baudrate = 9600;    // baudrate, probably best not to fiddle
 static const unsigned char TEpin = 2; // transmit enable pin
@@ -54,17 +54,17 @@ const int servoStartuS = 700; // start uS of servo range (=0  degrees), only cha
 const int servoEnduS = 2301;  // end uS   of servo range (=180 dgrees), only change in line with servo performance
 
 // Do not drive servo's beyond this angle, set with care.
-const unsigned int DRIVELIMIT = 45;
+const unsigned int DRIVELIMIT = 50;
 
 // Default angle to send signals to for "OFF"
-const unsigned int DRIVEANGLE = 45;
+const unsigned int DRIVEANGLE = 50;
 
 const unsigned int NUMARMS = 4;
 
 unsigned char sID = 1;  // Initial Slave ID before setting with DIP switch
 
-const int upTransitionTimemS = 1700;    // time allowed in milliseconds for off/up transition
-const int downTransitionTimemS = 1500;  // time allowed in milliseconds for down/on transition
+const int upTransitionTimemS = 1750;    // time allowed in milliseconds for off/up transition
+const int downTransitionTimemS = 1200;  // time allowed in milliseconds for down/on transition
 // end
 
 // define "EasingFunc" callback function
@@ -98,7 +98,11 @@ enum
 Servo arm[NUMARMS];
 unsigned int registers[NUMREGISTERS]; // function 3 and 16 register array
 
+// random timing interval so signals don't end up all updating at once
+int randinterval = 75;
+
 void setup() {
+  randinterval = random(50, 75);
   int startPosuS = 1500;  // starting position for arms
 
   //start serial
@@ -161,6 +165,8 @@ void loop() {
   static int prevsID; // Retain previous Slave ID setting
   int transitionTimemS = 1000;
   bool AUTOMODE = true;
+  int toDegrees = 0;
+  int reqregidx = 4;
 
   // don't really need to call this every loop, just every now and again
   sID = readSlaveID();
@@ -171,16 +177,16 @@ void loop() {
   }
   prevsID = sID;
 
-  int reqregidx = 4;
+
   for (int i = 0, j = 0; i < NUMARMS; i++) {
     modbus_update();
     reqregidx = (i + 4);
+    toDegrees = registers[reqregidx];
 
     // manual switch override
     if (i == 2) {
       j += 2;
     }
-
 
     // manual mode, if on go to driveangle, write back to read register
     // if off, if request register is still high, stay high
@@ -190,10 +196,11 @@ void loop() {
     if (digitalRead(i + j + 3) == LOW) {
       AUTOMODE = false;
       // write new indication to request register
-      registers[reqregidx] = DRIVEANGLE;
-      // otherwise return to auto
+      toDegrees = DRIVEANGLE
+      ;
     }
     else {
+      // otherwise return to auto
       AUTOMODE = true;
     }
 
@@ -206,45 +213,34 @@ void loop() {
     Serial.print(i);
     Serial.print(" REQUEST (READ) Register value: ");
     Serial.println(registers[reqregidx]);
+    Serial.print(" To degrees value: ");
+    Serial.println(toDegrees);
 #endif
 
     // if ON upTransitionTimemS, func select 1
     // if ON downTransitionTimemS, func select 2
 
     // default ON down
-    int easingcurve = 2;
+    int easingcurve = 1;
     transitionTimemS = downTransitionTimemS;
     // clear (OFF) up
-    if (registers[i] > 0) {
-      easingcurve = 1;
+    if (toDegrees > 0) {
+      easingcurve = 2;
       transitionTimemS = upTransitionTimemS;
     }
 
-
     // only move if there is a change required
-    if (registers[reqregidx] != registers[i]) {
-      int readpos = moveArm(i, easingcurve, registers[reqregidx], transitionTimemS);
-
-      if (AUTOMODE) {
-        registers[i] = readpos;
-      }
-    }
-
-    if (registers[i] != registers[reqregidx] && AUTOMODE == false) {
-      // restore previous value
-      registers[reqregidx] = registers[i];
+    if (toDegrees != registers[i]) {
+      registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS);
     }
 
 #ifdef DEBUG
     Serial.print(i);
     Serial.print(" WRITE Register Value: ");
-    Serial.println(readpos);
+    Serial.println(registers[i]);
     Serial.println("-------------------");
     Serial.println("-------------------");
 #endif
-
-
-
   }
 
 }
@@ -283,6 +279,12 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
       EasingFunc = easeNone;
   }
 
+  #ifdef DEBUG
+    Serial.print(armI);
+    Serial.print(" Easing Function: ");
+    Serial.println(armfuncselect);
+#endif
+
   float startuS = arm[armI].readMicroseconds();
 
   // drive limit here before calculating destination
@@ -300,11 +302,11 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
   unsigned long lastmodbusupdate, startloopMillis = currentMillis;
 
   // re-attach arm
-  // arm[armNum].attach((armI += (armI > 2) ? 5 : 7), servoStartuS, servoEnduS);  // 5,6 - 9 and 10
+  //arm[armI].attach((armI += (armI > 2) ? 5 : 7), servoStartuS, servoEnduS);  // 5,6 - 9 and 10
   while (currentMillis - startloopMillis < transitionTimemS) {
     posnuS = (int)EasingFunc((currentMillis - startloopMillis), startuS, amountofchange, transitionTimemS);
 
-    if ((millis() - lastmodbusupdate) > 500) {
+    if ((millis() - lastmodbusupdate) > randinterval) {
       modbus_update();
       lastmodbusupdate =  millis();
     }
@@ -326,7 +328,7 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
     currentMillis = millis();
   }
   // detach to stop jitter
-  // arm[armI].detach();
+  //arm[armI].detach();
 
   // return degrees,map microseconds to degreees
   return map(arm[armI].readMicroseconds(),  toLow, toHigh, fromLow, fromHigh);
