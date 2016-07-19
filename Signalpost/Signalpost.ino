@@ -53,12 +53,15 @@ static const unsigned char TEpin = 2; // transmit enable pin
 const int servoStartuS = 700; // start uS of servo range (=0  degrees), only change in line with servo performance
 const int servoEnduS = 2301;  // end uS   of servo range (=180 dgrees), only change in line with servo performance
 
-// Do not drive servo's beyond this angle, set with care.
-const unsigned int DRIVELIMIT = 50;
+// Do not drive servo's beyond this angle, set with care.  
+// Calculated as 110 degrees arc movement space available minus 24 degrees spline error
+const unsigned int DRIVELIMIT = 84;
 
 // Default angle to send signals to for "OFF"
-const unsigned int DRIVEANGLE = 50;
+// note this is the angle the servo moves, not necessarily reflected in the physical movement of the signal arm
+const unsigned int DRIVEANGLE = 84;
 
+// Number of arms we've programmed to poll/support (target Arduino micro board)
 const unsigned int NUMARMS = 4;
 
 unsigned char sID = 1;  // Initial Slave ID before setting with DIP switch
@@ -145,10 +148,9 @@ void setup() {
     arm[i].attach((i + j + 5), servoStartuS, servoEnduS);         // 5,6 - 9 and 10
   }
 
+  // delay for Inputs to settle
   delay(250);
 
-
-  // possible delay for Inputs to settle?
   sID = readSlaveID();
   /* parameters(HardwareSerial* SerialPort,
                 long baudrate,
@@ -162,21 +164,10 @@ void setup() {
 }
 
 void loop() {
-  static int prevsID; // Retain previous Slave ID setting
   int transitionTimemS = 1000;
   bool AUTOMODE = true;
   int toDegrees = 0;
   int reqregidx = 4;
-
-  // don't really need to call this every loop, just every now and again
-  sID = readSlaveID();
-  if (sID != prevsID) {
-    // modbus_update_comms(baud, byteFormat, id) is not needed but allows for easy update of the
-    // port variables and slave id dynamically in any function.
-    modbus_update_comms(baudrate, SERIAL_8N2, sID);
-  }
-  prevsID = sID;
-
 
   for (int i = 0, j = 0; i < NUMARMS; i++) {
     modbus_update();
@@ -196,8 +187,7 @@ void loop() {
     if (digitalRead(i + j + 3) == LOW) {
       AUTOMODE = false;
       // write new indication to request register
-      toDegrees = DRIVEANGLE
-      ;
+      toDegrees = DRIVEANGLE;
     }
     else {
       // otherwise return to auto
