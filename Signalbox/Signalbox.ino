@@ -19,11 +19,11 @@
 //////////////////// Port information ///////////////////
 #define baudrate 9600
 //#define timeout 1000
-#define timeout 125.0
+#define timeout 1250
 // #define polling 200 // the scan rate
 // knock this down real low for many bus members
 #define polling 200 // the scan rate
-#define retry_count 2
+#define retry_count 3
 
 // used to toggle the receive/transmit pin on the driver
 #define TxEnablePin 2
@@ -132,7 +132,7 @@ void setup()
   // comms with host PC
   Serial.begin(9600);
   // give us a chance to get the serial line open!
-  delay(2000);
+  delay(500);
 #endif
   // SETUP settings switch and potentiometer input pin for reading and changing drive angles
   pinMode(settingsModePin, INPUT_PULLUP);
@@ -187,7 +187,7 @@ void setup()
 
   // After setup set all indicator lines HIGH, then to typical positions.
   // put a delay in so LED lines show on for a bit
-  delay(500);
+  delay(1500);
   digitalWrite(settingsLEDPin, LOW);
 
   modbus_configure(&Serial, baudrate, SERIAL_8N2, timeout, polling, retry_count, TxEnablePin, packets, TOTAL_NO_OF_PACKETS, regs);
@@ -225,7 +225,6 @@ void loop()
   // else we were in settings mode (and still are), or aren't in settings mode (and don't want to be)
   */
 
-  //  if (incycle == 1) {
   int commsstate = 0;
   for ( int h = 0, i = 0; h < NUMPOSTS; h++, i += 2) {
     commsstate = packets[i].connection;
@@ -237,10 +236,7 @@ void loop()
 #endif
     digitalWrite((22 + h), (commsstate ? LOW : HIGH));
   }
-  incycle = 2;
-  // }
 
-  if (incycle == 2) {
     // POST 1 read registers   0 -> 3
     // POST 1 WRITE registers  4 -> 7
     // POST 2 read registers   8 -> 11
@@ -250,21 +246,21 @@ void loop()
     // POST 4 read registers  24 -> 27
     // POST 4 WRITE registers 28 -> 31
 
-    // this means going through the ARMS eg A1 to A7
-    int sPinState = LOW;
-    int sArmState = 0;  // arm state ON (0) or OFF (>0)
-    int armidx = NUMARMS;
-    while (armidx) {
-      --armidx;
-      // read input lines AN to A1...
-      sPinState = digitalRead(apins[signalarms[armidx][3]]);
+  // this means going through the ARMS eg A1 to A7
+  int sPinState = LOW;
+  int sArmState = 0;  // arm state ON (0) or OFF (>0)
+  int armidx = NUMARMS;
+  while (armidx) {
+    --armidx;
+    // read input lines AN to A1...
+    sPinState = digitalRead(apins[signalarms[armidx][3]]);
 
-      int postIDtoUpdate = signalarms[armidx][0];
-      int regOffset = signalarms[armidx][2] - 1 ;  // ie the Arm on the post
-      int regStart = ((postIDtoUpdate - 1) * 8);
+    int postIDtoUpdate = signalarms[armidx][0];
+    int regOffset = signalarms[armidx][2] - 1 ;  // ie the Arm on the post
+    int regStart = ((postIDtoUpdate - 1) * 8);
 
-      // GETTING (first set of 4 registers)
-      sArmState = regs[(regStart + regOffset)];
+    // GETTING (first set of 4 registers)
+    sArmState = regs[(regStart + regOffset)];
 
 #ifdef DEBUG
       Serial.print("Arm ID: ");
@@ -288,8 +284,8 @@ void loop()
       Serial.println("------------------------------");
 #endif
 
-      digitalWrite(signalarms[armidx][4], ((sArmState == 0 ) ? HIGH : LOW)); // ON LED (red)
-      digitalWrite(signalarms[armidx][5], ((sArmState  > 0) ? HIGH : LOW)); // OFF LED (green)
+    digitalWrite(signalarms[armidx][4], ((sArmState == 0 ) ? HIGH : LOW)); // ON LED (red)
+    digitalWrite(signalarms[armidx][5], ((sArmState  > 0) ? HIGH : LOW)); // OFF LED (green)
       /*
             // IF IN DEGREE SETTING MODE, INPUT-PULLUP ARM off WHEN LOW
             if(inSettingsMode && sPinState == LOW) {
@@ -299,8 +295,8 @@ void loop()
               // write to EEPROM ?
             }
       */
-      // don't permit value larger than 180 degrees
-      armangle = (armanglesDegrees[armidx] <= 180) ? armanglesDegrees[armidx] : 180;
+    // don't permit value larger than 180 degrees
+    armangle = (armanglesDegrees[armidx] <= 180) ? armanglesDegrees[armidx] : 180;
 
 #ifdef DEBUG2
       Serial.print("Post ID: ");
@@ -314,12 +310,12 @@ void loop()
       Serial.println(signalarms[armidx][3]);
       Serial.println(apins[signalarms[armidx][3]]);
 #endif
-      // SETTING (next set of 4 registers)
-      // if pin grounded (inverted on INPUT_PULLUP), set the relevant register
-      regs[((regStart + 4) + regOffset)] = ((sPinState == HIGH) ? 0 : armangle); // degree to drive to
-    }
-
-    incycle = 1;
+    // SETTING (next set of 4 registers)
+    // if pin grounded (inverted on INPUT_PULLUP), set the relevant register
+    regs[((regStart + 4) + regOffset)] = ((sPinState == HIGH) ? 0 : armangle); // degree to drive to
+      
+    // update per arm cycle     
+    modbus_update();
   }
 }
 
