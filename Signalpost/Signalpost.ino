@@ -53,7 +53,7 @@ static const unsigned char TEpin = 2; // transmit enable pin
 const int servoStartuS = 700; // start uS of servo range (=0  degrees), only change in line with servo performance
 const int servoEnduS = 2301;  // end uS   of servo range (=180 dgrees), only change in line with servo performance
 
-// Do not drive servo's beyond this angle, set with care.  
+// Do not drive servo's beyond this angle, set with care.
 // Calculated as 110 degrees arc movement space available minus 24 degrees spline error
 const unsigned int DRIVELIMIT = 84;
 
@@ -149,7 +149,7 @@ void setup() {
   }
 
   // delay for Inputs to settle
-  delay(250);
+  delay(250 + randinterval);
 
   sID = readSlaveID();
   /* parameters(HardwareSerial* SerialPort,
@@ -222,6 +222,8 @@ void loop() {
     // only move if there is a change required
     if (toDegrees != registers[i]) {
       registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS);
+      // Update after change
+      modbus_update();
     }
 
 #ifdef DEBUG
@@ -269,10 +271,10 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
       EasingFunc = easeNone;
   }
 
-  #ifdef DEBUG
-    Serial.print(armI);
-    Serial.print(" Easing Function: ");
-    Serial.println(armfuncselect);
+#ifdef DEBUG
+  Serial.print(armI);
+  Serial.print(" Easing Function: ");
+  Serial.println(armfuncselect);
 #endif
 
   float startuS = arm[armI].readMicroseconds();
@@ -301,15 +303,16 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
       lastmodbusupdate =  millis();
     }
 
-
 #ifdef DEBUG
+    Serial.print(" Arm Number: ");
     Serial.print(armI);
     Serial.print(" Drive to uS Position: ");
     Serial.println(posnuS);
     Serial.print(" Drive limit uS: ");
     Serial.println(DRIVELIMITuS);
-    Serial.print(" Current Mill Seconds: (");
+    Serial.print(" Current Milli Seconds: (");
     Serial.println(currentMillis);
+    Serial.println(")");
     Serial.println("-------------------");
     // allow the serial line time to catch up
     delay(250);
