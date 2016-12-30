@@ -43,10 +43,13 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <SimpleModbusSlave.h>
 #include <Servo.h>
 
+#define VERSION 30122016
+
 // set to 1 for debugging over serial Monitor, 0 in normal operations
 //#define DEBUG 1
 
-static const long baudrate = 9600;    // baudrate, probably best not to fiddle
+
+static const long baudrate = 9600;    // baudrate (for modbus), probably best not to fiddle
 static const unsigned char TEpin = 2; // transmit enable pin
 
 // Configuration variables
@@ -105,7 +108,7 @@ unsigned int registers[NUMREGISTERS]; // function 3 and 16 register array
 int randinterval = 75;
 
 void setup() {
-  randinterval = random(50, 75);
+  randinterval = random(25, 75);
   int startPosuS = 1500;  // starting position for arms
 
   //start serial
@@ -149,7 +152,7 @@ void setup() {
   }
 
   // delay for Inputs to settle
-  delay(250 + randinterval);
+  delay(randinterval);
 
   sID = readSlaveID();
   /* parameters(HardwareSerial* SerialPort,
@@ -243,6 +246,7 @@ void loop() {
    Returns, where we got to (DRIVEANGLE)
 */
 int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) {
+  modbus_update();
   int posnuS = 1500;          // current position of servo in microSeconds
   unsigned long currentMillis = 0;
 
@@ -298,10 +302,10 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
   while (currentMillis - startloopMillis < transitionTimemS) {
     posnuS = (int)EasingFunc((currentMillis - startloopMillis), startuS, amountofchange, transitionTimemS);
 
-    if ((millis() - lastmodbusupdate) > randinterval) {
+    //if ((millis() - lastmodbusupdate) > randinterval) {
       modbus_update();
       lastmodbusupdate =  millis();
-    }
+    //}
 
 #ifdef DEBUG
     Serial.print(" Arm Number: ");
@@ -314,8 +318,6 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
     Serial.println(currentMillis);
     Serial.println(")");
     Serial.println("-------------------");
-    // allow the serial line time to catch up
-    delay(250);
 #endif
     arm[armI].writeMicroseconds(posnuS);              // tell servo to go to position in variable 'pos'
     currentMillis = millis();
