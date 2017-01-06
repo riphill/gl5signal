@@ -38,18 +38,36 @@ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
 STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
-
+ */
+/* 
+ *  Uses Simple Modbus libraries by Juan B 
+ *  See: 
+ *  https://code.google.com/archive/p/simple-modbus/
+ *  https://drive.google.com/drive/folders/0B0B286tJkafVSENVcU1RQVBfSzg
+ *  https://drive.google.com/drive/folders/0B0B286tJkafVYnBhNGo4N3poQ2c
+ *  and
+ *  http://forum.arduino.cc/index.php?topic=176142.0
+ *  Tested on Arduino/Genuino Micro (slave) and Arduino Mega 2560 R3 (master) 
+ *  Using Versions SMMv2rev2 and SMSv10
+ *  
+ *  Note Simple Modbus Slave uses a different value for T1_5 than SMMv2rev2
+ *  -- T1_5 = 15000000/baud; // 1T * 1.5 = T1.5
+ *  to match SMM2rev2
+ *  ++ T1_5 = 16500000/baud; // 1T * 1.5 = T1.5
+ *  for baud rates lower than 19200
  */
 #include <SimpleModbusSlave.h>
 #include <Servo.h>
 
-#define VERSION 30122016
+#define VERSION 05012017
 
 // set to 1 for debugging over serial Monitor, 0 in normal operations
-//#define DEBUG 1
+// #define DEBUG 1
+// #define DEBUGMOVE
 
-
-static const long baudrate = 9600;    // baudrate (for modbus), probably best not to fiddle
+ // baudrate (for modbus
+//static const long baudrate = 9600;   
+static const long baudrate = 19200;
 static const unsigned char TEpin = 2; // transmit enable pin
 
 // Configuration variables
@@ -58,7 +76,7 @@ const int servoEnduS = 2301;  // end uS   of servo range (=180 dgrees), only cha
 
 // Do not drive servo's beyond this angle, set with care.
 // Calculated as 110 degrees arc movement space available minus 24 degrees spline error
-const unsigned int DRIVELIMIT = 84;
+const unsigned int DRIVELIMIT = 82;
 
 // Default angle to send signals to for "OFF"
 // note this is the angle the servo moves, not necessarily reflected in the physical movement of the signal arm
@@ -71,7 +89,7 @@ unsigned char sID = 1;  // Initial Slave ID before setting with DIP switch
 
 const int upTransitionTimemS = 1750;    // time allowed in milliseconds for off/up transition
 const int downTransitionTimemS = 1200;  // time allowed in milliseconds for down/on transition
-// end
+// end configurables
 
 // define "EasingFunc" callback function
 // you can make your own of these to use
@@ -112,10 +130,14 @@ void setup() {
   int startPosuS = 1500;  // starting position for arms
 
   //start serial
-#ifdef DEBUG
+#ifdef DEBUG || defined DEBUGMOVE
   // comms with host PC
-  Serial.begin(9600);
+  Serial.begin(115200);
 #endif
+
+  // setup onboard LED to flash for status indication
+  // (could be modbus_update or in movearm function
+  pinMode(LED_BUILTIN, OUTPUT); 
 
   // input SlaveID setting switches, start from A0
   for (int i = 0; i <= 5; i++) {
@@ -167,17 +189,17 @@ void setup() {
 }
 
 void loop() {
+  modbus_update();
   int transitionTimemS = 1000;
   bool AUTOMODE = true;
   int toDegrees = 0;
   int reqregidx = 4;
 
   for (int i = 0, j = 0; i < NUMARMS; i++) {
-    modbus_update();
     reqregidx = (i + 4);
     toDegrees = registers[reqregidx];
 
-    // manual switch override
+    // manual switch override, input pins 3,4,7,8,(...  10,11) (add i to j plus 3) 
     if (i == 2) {
       j += 2;
     }
@@ -199,11 +221,9 @@ void loop() {
 
 #ifdef DEBUG
     Serial.println("-------------------");
-    Serial.println("-------------------");
     Serial.print(i);
     Serial.print(" Manual line: ");
     Serial.println(i + j + 3);
-    Serial.print(i);
     Serial.print(" REQUEST (READ) Register value: ");
     Serial.println(registers[reqregidx]);
     Serial.print(" To degrees value: ");
@@ -213,27 +233,32 @@ void loop() {
     // if ON upTransitionTimemS, func select 1
     // if ON downTransitionTimemS, func select 2
 
-    // default ON down
+    // default. (ON) down, at danger
     int easingcurve = 1;
     transitionTimemS = downTransitionTimemS;
-    // clear (OFF) up
+    // Clear signal. (OFF) up
     if (toDegrees > 0) {
       easingcurve = 2;
       transitionTimemS = upTransitionTimemS;
     }
 
     // only move if there is a change required
+    // move to 0 posn, toDegrees = 0, registers[i] = 0
+    // move to X posn, toDegrees = X, registers[i] = X OR registers[i] = DRIVELIMIT 
+    // Essentially because the WRITE register may not return exactly equal to DRIVELIMIT 
     if (toDegrees != registers[i]) {
-      registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS);
-      // Update after change
-      modbus_update();
+        if((toDegrees > 0 && registers[i] == 0) || (toDegrees == 0 && registers[i] > 0) ) {
+          Serial.println(" IN WE GO! ");
+      registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS); 
+        }
     }
 
+    // Update after change
+    modbus_update();
+
 #ifdef DEBUG
-    Serial.print(i);
     Serial.print(" WRITE Register Value: ");
     Serial.println(registers[i]);
-    Serial.println("-------------------");
     Serial.println("-------------------");
 #endif
   }
@@ -275,7 +300,7 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
       EasingFunc = easeNone;
   }
 
-#ifdef DEBUG
+#ifdef DEBUGMOVE
   Serial.print(armI);
   Serial.print(" Easing Function: ");
   Serial.println(armfuncselect);
@@ -296,18 +321,22 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
 
   currentMillis = millis();
   unsigned long lastmodbusupdate, startloopMillis = currentMillis;
-
+  
+  digitalWrite(LED_BUILTIN, HIGH); 
   // re-attach arm
   //arm[armI].attach((armI += (armI > 2) ? 5 : 7), servoStartuS, servoEnduS);  // 5,6 - 9 and 10
   while (currentMillis - startloopMillis < transitionTimemS) {
     posnuS = (int)EasingFunc((currentMillis - startloopMillis), startuS, amountofchange, transitionTimemS);
 
-    //if ((millis() - lastmodbusupdate) > randinterval) {
+    if ((millis() - lastmodbusupdate) > randinterval) {
       modbus_update();
-      lastmodbusupdate =  millis();
-    //}
+      lastmodbusupdate =  millis();      
+#ifdef DEBUGMOVE
+      Serial.println("modbus_upate");
+#endif
+    }
 
-#ifdef DEBUG
+#ifdef DEBUGMOVE
     Serial.print(" Arm Number: ");
     Serial.print(armI);
     Serial.print(" Drive to uS Position: ");
@@ -315,7 +344,7 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
     Serial.print(" Drive limit uS: ");
     Serial.println(DRIVELIMITuS);
     Serial.print(" Current Milli Seconds: (");
-    Serial.println(currentMillis);
+    Serial.print(currentMillis);
     Serial.println(")");
     Serial.println("-------------------");
 #endif
@@ -324,6 +353,7 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
   }
   // detach to stop jitter
   //arm[armI].detach();
+  digitalWrite(LED_BUILTIN, LOW); 
 
   // return degrees,map microseconds to degreees
   return map(arm[armI].readMicroseconds(),  toLow, toHigh, fromLow, fromHigh);

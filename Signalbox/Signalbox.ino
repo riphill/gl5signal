@@ -1,3 +1,6 @@
+#include <SimpleModbusMaster.h>
+
+#define VERSION 05012017
 /*
    Middleton Box
    Arduino Sketch for Arduino/Genuino Mega 2560
@@ -5,11 +8,19 @@
 
    GL5 Mainline Association, Signal Project (for Shildon Museum display March 2016)
 
+   Uses Simple Modbus libraries by Juan B 
+   See: 
+   https://code.google.com/archive/p/simple-modbus/
+   https://drive.google.com/drive/folders/0B0B286tJkafVSENVcU1RQVBfSzg
+   https://drive.google.com/drive/folders/0B0B286tJkafVYnBhNGo4N3poQ2c
+   and
+   http://forum.arduino.cc/index.php?topic=176142.0
+   Tested on Arduino/Genuino Micro (slave) and Arduino Mega 2560 R3 (master) 
+   Using Versions SMMv2rev2 and SMSv10
 */
-// Simple Modbus Masster Library
 #include <SimpleModbusMaster.h>
 //#define DEBUG
-//#define DEBUGCOMMS
+#define DEBUGCOMMS
 //#define DEBUG2
 
 //////////////////// SIGNALBOX SELECTION ////////////////////
@@ -19,16 +30,20 @@
 #define __MIDDLETONBOX__
 
 //////////////////// Port information ///////////////////
-#define baudrate 9600
 //#define timeout 1000
-#define timeout 1250
+#define timeout 1000 // longer than arm transition time+delay?
 // #define polling 200 // the scan rate
 // knock this down real low for many bus members
-#define polling 200 // the scan rate
-#define retry_count 3
+#define polling 100 // the scan rate
+#define retry_count 3 // also using this for an auto-reset comms value
 
 // used to toggle the receive/transmit pin on the driver
 #define TxEnablePin 2
+#define commsStateStartPin 22
+
+// ModBus baudrate (not USB serial monitor port rate)
+// #define baudrate 9600
+#define baudrate 19200
 
 // Map pins in array later from integers
 
@@ -112,7 +127,9 @@ int armanglesDegrees[NUMARMS];
 
 // The total amount of available memory on the master to store data
 const int TOTAL_NO_OF_REGISTERS = (NUMARMS * 8);
-const int TOTAL_NO_OF_PACKETS = (NUMARMS * 2);
+// one packet for read per post (multi-register), one for write per arm
+// XX: for multi-reg reads this should be 2 packets per post?
+const int TOTAL_NO_OF_PACKETS = (NUMPOSTS * 2);
 
 // Create an array of Packets to be configured
 Packet packets[TOTAL_NO_OF_PACKETS];
@@ -132,7 +149,7 @@ void setup()
 
 #if defined DEBUG || defined DEBUGCOMMS
   // comms with host PC
-  Serial.begin(9600);
+  Serial.begin(115200);
 #endif
   // SETUP settings switch and potentiometer input pin for reading and changing drive angles
   pinMode(settingsModePin, INPUT_PULLUP);
@@ -167,9 +184,9 @@ void setup()
   
   for ( int i = 0, j = 0; i < NUMPOSTS; i++, j += 2) {
     int postid = (i + 1);
-    // set up post communication warning LEDs starting from pin 22
-    pinMode((22 + i), OUTPUT);
-    digitalWrite((22 + i), HIGH);  // proving and setting indicator, will be reset on communication
+    // set up post communication warning LEDs starting from pin commsStateStartPin
+    pinMode((commsStateStartPin + i), OUTPUT);
+    digitalWrite((commsStateStartPin + i), HIGH);  // proving and setting indicator, will be reset on communication
 
     // post is counting from 0 so post 1 is 0 in this loop, no need to decrement
     int regStart = (i * 8);
@@ -183,6 +200,9 @@ void setup()
     modbus_construct(&packets[j], postid, READ_HOLDING_REGISTERS, 0, 4, regStart);
     // set upper registers
     modbus_construct(&packets[j + 1], postid, PRESET_MULTIPLE_REGISTERS, 4, 4, (regStart + 4));
+    //modbus_construct(&packets[j + 1], postid,  FORCE_MULTIPLE_COILS, 4, 4, (regStart + 4));
+    // single arm?
+    //modbus_construct(&packets[j + 1], postid, PRESET_SINGLE_REGISTER, 4, 1, (regStart + 4));
   }
 
   // After setup set all indicator lines HIGH, then to typical positions.
@@ -227,29 +247,49 @@ void loop()
 
   int commsstate = 0;
   for ( int h = 0, i = 0; h < NUMPOSTS; h++, i += 2) {
+    modbus_update();
     commsstate = packets[i].connection;
 #ifdef DEBUGCOMMS
-    Serial.print("Slave ID : ");
-    Serial.print(h+1);
-    Serial.print(" Write Packet : ");
-    Serial.print(i);
-    Serial.print(", successful requests: ");
-    Serial.print(packets[i].successful_requests);
-    Serial.print(", failed requests: ");
-    Serial.print(packets[i].failed_requests);
-    Serial.print(", connection errors: ");
-    Serial.print(packets[i].exception_errors);
-    Serial.print(", retries: ");
-    Serial.print(packets[i].retries);
-    Serial.print(", comms state: ");
-    Serial.println(commsstate);
+    String slavedebug = "Slave ID: ";
+    slavedebug.concat(h+1);
+    slavedebug.concat(" ");
+    Serial.println(slavedebug);
+    Serial.println("Type, #, Success, Fail, Excep, retry, comm"); 
+    String readdebug = "Read,  ";
+    readdebug.concat(i); 
+    readdebug.concat(", ");
+    readdebug.concat(packets[i].successful_requests);
+    readdebug.concat(", ");
+    readdebug.concat(packets[i].failed_requests);
+    readdebug.concat(", ");
+    readdebug.concat(packets[i].exception_errors);
+    readdebug.concat(", ");
+    readdebug.concat(packets[i].retries);
+    readdebug.concat(", ");
+    readdebug.concat(packets[i].connection);
+    Serial.println(readdebug);
+    String writedebug = "Write, ";
+    writedebug.concat(i+1); 
+    writedebug.concat(", ");
+    writedebug.concat(packets[i+1].successful_requests);
+    writedebug.concat(", ");
+    writedebug.concat(packets[i+1].failed_requests);
+    writedebug.concat(", ");
+    writedebug.concat(packets[i+1].exception_errors);
+    writedebug.concat(", ");
+    writedebug.concat(packets[i+1].retries);
+    writedebug.concat(", ");
+    writedebug.concat(packets[i+1].connection);
+    Serial.println(writedebug);
 #endif
-    digitalWrite((22 + h), (commsstate ? LOW : HIGH));
+    digitalWrite((commsStateStartPin + h), (commsstate ? LOW : HIGH));
 
-    // auto-reset
-    if(packets[i].successful_requests >= 2 && !packets[i].connection) {
+    // auto-reset read
+    if(packets[i].successful_requests >= retry_count && !packets[i].connection) {
       packets[i].connection = true;
-      // set write registers too 
+    }
+    // auto-reset write
+    if(packets[i+1].successful_requests >= retry_count && !packets[i+1].connection) {
       packets[i+1].connection = true;
     }
   }
@@ -271,10 +311,11 @@ void loop()
   int sPinState = LOW;
   int sArmState = 0;  // arm state ON (0) or OFF (>0)
   int armidx = NUMARMS;
+
   while (armidx) {
-    // update per arm cycle     
-    modbus_update();
     --armidx;
+    //modbus_update();
+
     // read input lines AN to A1...
     sPinState = digitalRead(apins[signalarms[armidx][3]]);
 
@@ -336,7 +377,7 @@ void loop()
     // SETTING (next set of 4 registers)
     // if pin grounded (inverted on INPUT_PULLUP), set the relevant register
     regs[((regStart + 4) + regOffset)] = ((sPinState == HIGH) ? 0 : armangle); // degree to drive to
-  }
+  } // end while
 }
 
 
