@@ -221,13 +221,16 @@ void loop() {
 
 #ifdef DEBUG
     Serial.println("-------------------");
+    Serial.println(sID);
     Serial.print(i);
     Serial.print(" Manual line: ");
     Serial.println(i + j + 3);
     Serial.print(" REQUEST (READ) Register value: ");
-    Serial.println(registers[reqregidx]);
-    Serial.print(" To degrees value: ");
+    Serial.print(registers[reqregidx]);
+    Serial.print(" toDegrees Value: ");
     Serial.println(toDegrees);
+    Serial.print(" WRITE Register Value (before): ");
+    Serial.println(registers[i]);
 #endif
 
     // if ON upTransitionTimemS, func select 1
@@ -249,7 +252,7 @@ void loop() {
     if (toDegrees != registers[i]) {
         if((toDegrees > 0 && registers[i] == 0) || (toDegrees == 0 && registers[i] > 0) ) {
           Serial.println(" IN WE GO! ");
-      registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS); 
+          registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS); 
         }
     }
 
@@ -257,7 +260,7 @@ void loop() {
     modbus_update();
 
 #ifdef DEBUG
-    Serial.print(" WRITE Register Value: ");
+    Serial.print(" WRITE Register Value (after): ");
     Serial.println(registers[i]);
     Serial.println("-------------------");
 #endif
