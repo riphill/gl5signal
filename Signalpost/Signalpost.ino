@@ -1,72 +1,73 @@
 /*
- * Slave modbus Railway Signal (servo controlled arms) program
- * Intended for the Arduino/Genuino Micro/Leonardo board
- * Uses Simple-Modbus Library
- *
- * GL5 Mainline Association, Signal Project (for Shildon Museum display March 2016)
- *
- * 2016
- *
- * https://github.com/jesusgollonet/ofpennereasing/tree/master/PennerEasing
+   Slave modbus Railway Signal (servo controlled arms) program
+   Intended for the Arduino/Genuino Micro/Leonardo board
+   Uses Simple-Modbus Library
 
-TERMS OF USE - EASING EQUATIONS
-Open source under the BSD License http://www.opensource.org/licenses/bsd-license.php
+   GL5 Mainline Association, Signal Project (for Shildon Museum display March 2016)
 
-Copyright © 2001 Robert Penner
-All rights reserved.
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
+   2016
 
-Redistributions of source code must retain the above copyright notice,
-this list of conditions and the following disclaimer.
-Redistributions in binary form must reproduce the above copyright notice,
-this list of conditions and the following disclaimer in the documentation and/or
-other materials provided with the distribution.
-Neither the name of the author nor the names of contributors may be used to
-endorse or promote products derived from this software without specific
-prior written permission.
+   https://github.com/jesusgollonet/ofpennereasing/tree/master/PennerEasing
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS
-AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
-INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN
-NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
-OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
-STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
-IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.
- */
-/* 
- *  Uses Simple Modbus libraries by Juan B 
- *  See: 
- *  https://code.google.com/archive/p/simple-modbus/
- *  https://drive.google.com/drive/folders/0B0B286tJkafVSENVcU1RQVBfSzg
- *  https://drive.google.com/drive/folders/0B0B286tJkafVYnBhNGo4N3poQ2c
- *  and
- *  http://forum.arduino.cc/index.php?topic=176142.0
- *  Tested on Arduino/Genuino Micro (slave) and Arduino Mega 2560 R3 (master) 
- *  Using Versions SMMv2rev2 and SMSv10
- *  
- *  Note Simple Modbus Slave uses a different value for T1_5 than SMMv2rev2
- *  -- T1_5 = 15000000/baud; // 1T * 1.5 = T1.5
- *  to match SMM2rev2
- *  ++ T1_5 = 16500000/baud; // 1T * 1.5 = T1.5
- *  for baud rates lower than 19200
- */
+  TERMS OF USE - EASING EQUATIONS
+  Open source under the BSD License http://www.opensource.org/licenses/bsd-license.php
+
+  Copyright © 2001 Robert Penner
+  All rights reserved.
+  Redistribution and use in source and binary forms, with or without modification,
+  are permitted provided that the following conditions are met:
+
+  Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+  Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation and/or
+  other materials provided with the distribution.
+  Neither the name of the author nor the names of contributors may be used to
+  endorse or promote products derived from this software without specific
+  prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS
+  AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN
+  NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY
+  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+  OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+  HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+  STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+  IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+*/
+/*
+    Uses Simple Modbus libraries by Juan B
+    See:
+    https://code.google.com/archive/p/simple-modbus/
+    https://drive.google.com/drive/folders/0B0B286tJkafVSENVcU1RQVBfSzg
+    https://drive.google.com/drive/folders/0B0B286tJkafVYnBhNGo4N3poQ2c
+    and
+    http://forum.arduino.cc/index.php?topic=176142.0
+    Tested on Arduino/Genuino Micro (slave) and Arduino Mega 2560 R3 (master)
+    Using Versions SMMv2rev2 and SMSv10
+
+    Note Simple Modbus Slave uses a different value for T1_5 than SMMv2rev2
+    -- T1_5 = 15000000/baud; // 1T * 1.5 = T1.5
+    to match SMM2rev2
+    ++ T1_5 = 16500000/baud; // 1T * 1.5 = T1.5
+    for baud rates lower than 19200
+*/
 #include <SimpleModbusSlave.h>
 #include <Servo.h>
 
-#define VERSION 05012017
+#define VERSION 07012017
 
 // set to 1 for debugging over serial Monitor, 0 in normal operations
 // #define DEBUG 1
+// #define DEBUG2 1
 // #define DEBUGMOVE
 
- // baudrate (for modbus
-//static const long baudrate = 9600;   
+// baudrate (for modbus
+//static const long baudrate = 9600;
 static const long baudrate = 19200;
 static const unsigned char TEpin = 2; // transmit enable pin
 
@@ -130,14 +131,14 @@ void setup() {
   int startPosuS = 1500;  // starting position for arms
 
   //start serial
-#ifdef DEBUG || defined DEBUGMOVE
+#ifdef DEBUG || defined DEBUG2 || defined DEBUGMOVE
   // comms with host PC
   Serial.begin(115200);
 #endif
 
   // setup onboard LED to flash for status indication
   // (could be modbus_update or in movearm function
-  pinMode(LED_BUILTIN, OUTPUT); 
+  pinMode(LED_BUILTIN, OUTPUT);
 
   // input SlaveID setting switches, start from A0
   for (int i = 0; i <= 5; i++) {
@@ -169,7 +170,7 @@ void setup() {
 
     // drive all arms to start position.
     arm[i].writeMicroseconds(startPosuS);
-    // attach servos to PWM pins
+    // attach servos to PWM pins, drive to home, then detach
     arm[i].attach((i + j + 5), servoStartuS, servoEnduS);         // 5,6 - 9 and 10
   }
 
@@ -186,6 +187,10 @@ void setup() {
                 unsigned int* holding register array)
   */
   modbus_configure(&Serial1, baudrate, SERIAL_8N2, sID, TEpin, NUMREGISTERS, registers);
+
+  for (int i = 0; i < NUMARMS; i++) {
+    arm[i].detach();
+  }
 }
 
 void loop() {
@@ -199,7 +204,7 @@ void loop() {
     reqregidx = (i + 4);
     toDegrees = registers[reqregidx];
 
-    // manual switch override, input pins 3,4,7,8,(...  10,11) (add i to j plus 3) 
+    // manual switch override, input pins 3,4,7,8,(...  10,11) (add i to j plus 3)
     if (i == 2) {
       j += 2;
     }
@@ -247,13 +252,12 @@ void loop() {
 
     // only move if there is a change required
     // move to 0 posn, toDegrees = 0, registers[i] = 0
-    // move to X posn, toDegrees = X, registers[i] = X OR registers[i] = DRIVELIMIT 
-    // Essentially because the WRITE register may not return exactly equal to DRIVELIMIT 
+    // move to X posn, toDegrees = X, registers[i] = X OR registers[i] = DRIVELIMIT
+    // Essentially because the WRITE register may not return exactly equal to DRIVELIMIT
     if (toDegrees != registers[i]) {
-        if((toDegrees > 0 && registers[i] == 0) || (toDegrees == 0 && registers[i] > 0) ) {
-          Serial.println(" IN WE GO! ");
-          registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS); 
-        }
+      if ((toDegrees > 0 && registers[i] == 0) || (toDegrees == 0 && registers[i] > 0) ) {
+        registers[i] = moveArm(i, easingcurve, toDegrees, transitionTimemS);
+      }
     }
 
     // Update after change
@@ -303,16 +307,24 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
       EasingFunc = easeNone;
   }
 
-#ifdef DEBUGMOVE
+  int attacharm = armI + 5;
+  if (armI >= 2) {
+    attacharm += 2;
+  }
+#ifdef DEBUG2
+  Serial.print("Arm ID: ");
   Serial.print(armI);
+  Serial.print(" Arm Pin ");
+  Serial.println(attacharm);
   Serial.print(" Easing Function: ");
   Serial.println(armfuncselect);
 #endif
 
+  // re-attach arm, calculate pin from arm index
+  arm[armI].attach(attacharm, servoStartuS, servoEnduS);  // 5,6 - 9 and 10
   float startuS = arm[armI].readMicroseconds();
 
   // drive limit here before calculating destination
-
   // DO NOT go beyond absolute drive limit.
   if (armI % 2 == 1) {
     destuS = (destuS > DRIVELIMITuS) ? destuS : DRIVELIMITuS;
@@ -324,16 +336,15 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
 
   currentMillis = millis();
   unsigned long lastmodbusupdate, startloopMillis = currentMillis;
-  
-  digitalWrite(LED_BUILTIN, HIGH); 
-  // re-attach arm
-  //arm[armI].attach((armI += (armI > 2) ? 5 : 7), servoStartuS, servoEnduS);  // 5,6 - 9 and 10
+
+  digitalWrite(LED_BUILTIN, HIGH);
+
   while (currentMillis - startloopMillis < transitionTimemS) {
     posnuS = (int)EasingFunc((currentMillis - startloopMillis), startuS, amountofchange, transitionTimemS);
 
     if ((millis() - lastmodbusupdate) > randinterval) {
       modbus_update();
-      lastmodbusupdate =  millis();      
+      lastmodbusupdate =  millis();
 #ifdef DEBUGMOVE
       Serial.println("modbus_upate");
 #endif
@@ -355,8 +366,8 @@ int moveArm(int armI, int armfuncselect, int destDegrees, int transitionTimemS) 
     currentMillis = millis();
   }
   // detach to stop jitter
-  //arm[armI].detach();
-  digitalWrite(LED_BUILTIN, LOW); 
+  arm[armI].detach();
+  digitalWrite(LED_BUILTIN, LOW);
 
   // return degrees,map microseconds to degreees
   return map(arm[armI].readMicroseconds(),  toLow, toHigh, fromLow, fromHigh);
@@ -421,8 +432,8 @@ inline float easeOutElastic(float t, float b , float c, int d) {
 
 
 /*
- * Name:
- */
+   Name:
+*/
 byte readSlaveID() {
   // TODO: don't set slave to ID 0 (master address)
 
