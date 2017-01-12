@@ -66,9 +66,10 @@
 // #define DEBUG2 1
 // #define DEBUGMOVE
 
-// baudrate (for modbus
-//static const long baudrate = 9600;
-static const long baudrate = 19200;
+// baudrate (for modbus, not USB serial port)
+// static const long baudrate = 9600;
+#define baudrate 19200
+// #define baudrate 38400
 static const unsigned char TEpin = 2; // transmit enable pin
 
 // Configuration variables
@@ -186,7 +187,7 @@ void setup() {
                 unsigned int holding registers size,
                 unsigned int* holding register array)
   */
-  modbus_configure(&Serial1, baudrate, SERIAL_8N2, sID, TEpin, NUMREGISTERS, registers);
+  modbus_configure(&Serial1, baudrate, SERIAL_8E1, sID, TEpin, NUMREGISTERS, registers);
 
   for (int i = 0; i < NUMARMS; i++) {
     arm[i].detach();

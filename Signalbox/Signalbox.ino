@@ -25,15 +25,15 @@
 */
 
 #include <SimpleModbusMaster.h>
-// #define DEBUG
-#define DEBUGCOMMS
+#define DEBUG
+// #define DEBUGCOMMS
 // #define DEBUG2
 
 //////////////////// SIGNALBOX SELECTION ////////////////////
 // uncomment ONE of these defines for Shildon, noble or middleton
 // #define __SHILDONBOX__
 // #define __NOBLEBOX__
- #define __MIDDLETONBOX__
+#define __MIDDLETONBOX__
 // #define __TESTBOX__
 
 //////////////////// Port information ///////////////////
@@ -43,11 +43,13 @@
 
 // used to toggle the receive/transmit pin on the driver
 #define TxEnablePin 2
-#define commsStateStartPin 22
+// start the comms state indicators advancing from this pin
+#define commsStateStartPin 46
 
 // ModBus baudrate (not USB serial monitor port rate)
 // #define baudrate 9600
 #define baudrate 19200
+// #define baudrate 38400
 
 // Map pins in array later from integers
 
@@ -120,7 +122,7 @@ const unsigned int signalarms[8][6] = {
   {5, M3, 1, 3, 34, 35},
   {6, M8, 1, 8, 44, 45},
   {7, M9, 1, 9, 46, 47},
-};
+};  // should start at pin 22 to avoid overlap with post indicator pins
 
 const unsigned int NUMPOSTS = 7;  // could be calculated, just not at this point
 #else
@@ -141,7 +143,7 @@ enum {
 // Note analog pin is the INPUT pin for the signal arm in question.
 const unsigned int signalarms[8][6] {
   {1, T1,  1, 1, 30, 31},
-  {2, T3,  1, 2, 32, 33},
+  {4, T3,  1, 2, 32, 33},
   // the following is same slave id (ie same post), different Signal number, incremented arm numbers
   {3, T7,  1, 3, 42, 43},
   {3, T6,  2, 4, 44, 45},
@@ -178,6 +180,10 @@ unsigned int slaveids[NUMPOSTS]; // form up and index of slave id to map to regi
 bool inSettingsMode = false;
 int settingsModePin = 5;
 int settingsLEDPin = 4;
+unsigned long lastDebounceTime = 0;  // the last time  settings switch read
+int settingsSwLastState = HIGH;
+int settingsSwCount = 0; // count number of button presses
+int settingsLatch = LOW;
 int armanglesDegrees[NUMARMS]; // array to store the arm angle settings
 
 unsigned int armidx = 0;  // arm loop counter
@@ -192,7 +198,7 @@ void setup()
   Serial.begin(115200);
 #endif
   // SETUP settings switch and potentiometer input pin for reading and changing drive angles
-  pinMode(settingsModePin, INPUT_PULLUP);
+  pinMode(settingsModePin, INPUT_PULLUP);    // bring to ground to set (otherwise external pull down resistor required)
   pinMode(settingsLEDPin, OUTPUT);
   // set indicator HIGH fot startup test (set low at end of setup)
   digitalWrite(settingsLEDPin, HIGH);
@@ -259,7 +265,7 @@ void setup()
   delay(1500);
   digitalWrite(settingsLEDPin, LOW);
 
-  modbus_configure(&Serial2, baudrate, SERIAL_8N2, timeout, polling, retry_count, TxEnablePin, packets, TOTAL_NO_OF_PACKETS, regs);
+  modbus_configure(&Serial2, baudrate, SERIAL_8E1, timeout, polling, retry_count, TxEnablePin, packets, TOTAL_NO_OF_PACKETS, regs);
 }
 
 void loop()
@@ -267,165 +273,217 @@ void loop()
   modbus_update();
   int incycle = 1;
   int armangle = DRIVEANGLE;
+  int settingsSwState = digitalRead(settingsModePin);
 
-  /*
-    int startMillis = millis();
-
-    // check if we're leaving settings mode
-    if((digitalRead(settingsModePin) == HIGH) && inSettingsMode) {
-    inSettingsMode = false;
-    // de-light settings LED indicator
-    digitalWrite(settingsLEDPin, LOW);
-    }
-    // if we might be entering settings mode (wait for switch bounce)
-    if((digitalRead(settingsModePin) == LOW) && !inSettingsMode) {
-     // I'm just going to hang around and wait for 50 milliseconds for switch debounce
-     delay(50);
-     // if still low, we're in settings mode
-     if(digitalRead(settingsModePin) == LOW) {
-        inSettingsMode = true;
-        digitalWrite(settingsLEDPin, HIGH);
-        delay(500);
-        digitalWrite(settingsLEDPin, LOW);
-        delay(500);
-        digitalWrite(settingsLEDPin, HIGH);
-     }
-    }
-    // else we were in settings mode (and still are), or aren't in settings mode (and don't want to be)
-  */
-
-  int commsstate = 0;
-  for ( int h = 0, i = 0; h < NUMPOSTS; h++, i += 2) {
-    modbus_update();
-    commsstate = packets[i].connection;
-#ifdef DEBUGCOMMS
-    String slavedebug = "Slave ID: ";
-    slavedebug.concat(slaveids[h]);
-    slavedebug.concat(" ");
-    Serial.println(slavedebug);
-    Serial.println("Type, #, Success, Fail, Excep, retry, comm");
-    String readdebug = "Read,  ";
-    readdebug.concat(i);
-    readdebug.concat(", ");
-    readdebug.concat(packets[i].successful_requests);
-    readdebug.concat(", ");
-    readdebug.concat(packets[i].failed_requests);
-    readdebug.concat(", ");
-    readdebug.concat(packets[i].exception_errors);
-    readdebug.concat(", ");
-    readdebug.concat(packets[i].retries);
-    readdebug.concat(", ");
-    readdebug.concat(packets[i].connection);
-    Serial.println(readdebug);
-    String writedebug = "Write, ";
-    writedebug.concat(i + 1);
-    writedebug.concat(", ");
-    writedebug.concat(packets[i + 1].successful_requests);
-    writedebug.concat(", ");
-    writedebug.concat(packets[i + 1].failed_requests);
-    writedebug.concat(", ");
-    writedebug.concat(packets[i + 1].exception_errors);
-    writedebug.concat(", ");
-    writedebug.concat(packets[i + 1].retries);
-    writedebug.concat(", ");
-    writedebug.concat(packets[i + 1].connection);
-    Serial.println(writedebug);
-#endif
-    digitalWrite((commsStateStartPin + h), (commsstate ? LOW : HIGH));
-
-    // auto-reset read
-    if (packets[i].successful_requests >= retry_count && !packets[i].connection) {
-      packets[i].connection = true;
-    }
-    // auto-reset write
-    if (packets[i + 1].successful_requests >= retry_count && !packets[i + 1].connection) {
-      packets[i + 1].connection = true;
-    }
-  }
-#ifdef DEBUGCOMMS
-  Serial.println("----------------------------");
-#endif
-
-  // NOTE: POST != Slave ID
-  // POST 1 read registers   0 -> 3
-  // POST 1 WRITE registers  4 -> 7
-  // POST 2 read registers   8 -> 11
-  // POST 2 WRITE registers 12 -> 15
-  // POST 3 read registers  16 -> 19
-  // POST 3 WRITE registers 20 -> 23
-  // POST 4 read registers  24 -> 27
-  // POST 4 WRITE registers 28 -> 31
-
-  // this means going through the ARMS eg A1 to A7
-  int sPinState = LOW;
-  int sArmState = 0;  // arm state ON (0) or OFF (>0)
-
-  if (armidx == 0) {
-    armidx = NUMARMS;
-  }
-  --armidx;
-
-  // read input lines AN to A1...
-  sPinState = digitalRead(apins[signalarms[armidx][3]]);
-
-  int slaveid = signalarms[armidx][0];
-  int regOffset = signalarms[armidx][2] - 1 ;  // ie the Arm on the post
-
-  // regstart should be post array register dependent, not slave ID dependent
-  // bodge
-  int regStart = 0;
-  for (int j = 0; j <= NUMPOSTS; j++) {
-    if (slaveid == slaveids[j]) {
-      regStart = j * 8;  //each register comprises of 4 read and 4 write
-      break;
-    }
+  // transition button state reset debounce timer
+  if (settingsSwState != settingsSwLastState) {
+    lastDebounceTime = millis();
   }
 
-  // GETTING (first set of 4 registers)
-  sArmState = regs[(regStart + regOffset)];
-  digitalWrite(signalarms[armidx][4], ((sArmState == 0 ) ? HIGH : LOW)); // ON LED (red)
-  digitalWrite(signalarms[armidx][5], ((sArmState  > 0) ? HIGH : LOW)); // OFF LED (green)
-  /*
-        // IF IN DEGREE SETTING MODE, INPUT-PULLUP ARM off WHEN LOW
-        if(inSettingsMode && sPinState == LOW) {
-          // shouldn't get an angle larger than 180...
+  if ((millis() - lastDebounceTime) > 50) {
+    if (settingsSwState != settingsLatch) {
+      settingsLatch = settingsSwState;
+      if (settingsSwState == LOW) {
+        settingsSwCount = (settingsSwCount <= NUMARMS) ? (settingsSwCount += 1) : 0;
+      }
+      else {
+        settingsLatch = HIGH;
+      }
+    }
 
-          armanglesDegrees[armidx] = readSettingsValues();
-          // write to EEPROM ?
+    inSettingsMode = (settingsSwCount != 0) ? true : false;
+
+    Serial.print(settingsSwCount);
+    Serial.println(" settingsSwCount");
+  }
+  settingsSwLastState = settingsSwState;
+  digitalWrite(settingsLEDPin, inSettingsMode);
+
+  // all lights on when entering settings mode, then step through
+  if (inSettingsMode) {
+    int ledState = LOW;
+    // light all lights
+    //if (settingsSwCount == 1) {
+    //  ledState = HIGH;
+    //}
+
+    //  i == 0 All LEDs on
+    // step through signalpost arms
+    for ( int i = 0; i < NUMARMS; i++) {
+      ledState = (settingsSwCount == 1 || (settingsSwCount - 2) == i) ? HIGH : LOW;
+      // ON indicator (red LED)
+      digitalWrite(signalarms[i][4], ledState);
+      // OFF indicator (green LED)
+      digitalWrite(signalarms[i][5], ledState);
+      if (ledState) {
+        Serial.print(signalarms[i][4]);
+        Serial.print(" onPin ");
+        Serial.println(i);
+        Serial.println(slaveids[i]);
+        // Light post LEDs
+        for (int j = 0; j <= NUMPOSTS; j++) {
+          if (signalarms[i][0] == slaveids[j]) {
+            digitalWrite((commsStateStartPin + j), HIGH);
+          }
+          else {
+            digitalWrite((commsStateStartPin + j), LOW);
+          }
         }
-  */
-  // don't permit value larger than 180 degrees
-  armangle = (armanglesDegrees[armidx] <= 180) ? armanglesDegrees[armidx] : 180;
+      }
+    }
 
-  // SETTING (next set of 4 registers)
-  // if pin grounded (inverted on INPUT_PULLUP), set the relevant register
-  regs[((regStart + 4) + regOffset)] = ((sPinState == HIGH) ? 0 : armangle); // degree to drive to
+    /*
+      // set signalpost lights
+      for ( int i = 0; i < NUMPOSTS; i++) {
+      ledState = (settingsSwCount == 1 || settingsSwCount == (i - 2)) ? HIGH : LOW;
+      if (ledState) {
+        digitalWrite((commsStateStartPin + i), ledState);
+        Serial.print((commsStateStartPin + i));
+        Serial.print(" commsPin ");
+        Serial.println(i);
+      }
+      }
+    */
+
+  }
+
+
+  if (!inSettingsMode) {
+
+    int commsstate = 0;
+    for ( int h = 0, i = 0; h < NUMPOSTS; h++, i += 2) {
+      modbus_update();
+      commsstate = packets[i].connection;
+#ifdef DEBUGCOMMS
+      String slavedebug = "Slave ID: ";
+      slavedebug.concat(slaveids[h]);
+      slavedebug.concat(" ");
+      Serial.println(slavedebug);
+      Serial.println("Type, #, Success, Fail, Excep, retry, comm");
+      String readdebug = "Read,  ";
+      readdebug.concat(i);
+      readdebug.concat(", ");
+      readdebug.concat(packets[i].successful_requests);
+      readdebug.concat(", ");
+      readdebug.concat(packets[i].failed_requests);
+      readdebug.concat(", ");
+      readdebug.concat(packets[i].exception_errors);
+      readdebug.concat(", ");
+      readdebug.concat(packets[i].retries);
+      readdebug.concat(", ");
+      readdebug.concat(packets[i].connection);
+      Serial.println(readdebug);
+      String writedebug = "Write, ";
+      writedebug.concat(i + 1);
+      writedebug.concat(", ");
+      writedebug.concat(packets[i + 1].successful_requests);
+      writedebug.concat(", ");
+      writedebug.concat(packets[i + 1].failed_requests);
+      writedebug.concat(", ");
+      writedebug.concat(packets[i + 1].exception_errors);
+      writedebug.concat(", ");
+      writedebug.concat(packets[i + 1].retries);
+      writedebug.concat(", ");
+      writedebug.concat(packets[i + 1].connection);
+      Serial.println(writedebug);
+#endif
+      digitalWrite((commsStateStartPin + h), (commsstate ? LOW : HIGH));
+
+      // auto-reset read
+      if (packets[i].successful_requests >= retry_count && !packets[i].connection) {
+        packets[i].connection = true;
+      }
+      // auto-reset write
+      if (packets[i + 1].successful_requests >= retry_count && !packets[i + 1].connection) {
+        packets[i + 1].connection = true;
+      }
+    }
+#ifdef DEBUGCOMMS
+    Serial.println("----------------------------");
+#endif
+
+    // NOTE: POST != Slave ID
+    // POST 1 read registers   0 -> 3
+    // POST 1 WRITE registers  4 -> 7
+    // POST 2 read registers   8 -> 11
+    // POST 2 WRITE registers 12 -> 15
+    // POST 3 read registers  16 -> 19
+    // POST 3 WRITE registers 20 -> 23
+    // POST 4 read registers  24 -> 27
+    // POST 4 WRITE registers 28 -> 31
+
+    // this means going through the ARMS eg A1 to A7
+    int sPinState = LOW;
+    int sArmState = 0;  // arm state ON (0) or OFF (>0)
+
+    if (armidx == 0) {
+      armidx = NUMARMS;
+    }
+    --armidx;
+
+    // read input lines AN to A1...
+    sPinState = digitalRead(apins[signalarms[armidx][3]]);
+
+    int slaveid = signalarms[armidx][0];
+    int regOffset = signalarms[armidx][2] - 1 ;  // ie the Arm on the post
+
+    // regstart should be post array register dependent, not slave ID dependent
+    // bodge
+    int regStart = 0;
+    for (int j = 0; j <= NUMPOSTS; j++) {
+      if (slaveid == slaveids[j]) {
+        regStart = j * 8;  //each register comprises of 4 read and 4 write
+        break;
+      }
+    }
+
+    // GETTING (first set of 4 registers)
+    sArmState = regs[(regStart + regOffset)];
+    digitalWrite(signalarms[armidx][4], ((sArmState == 0 ) ? HIGH : LOW)); // ON LED (red)
+    digitalWrite(signalarms[armidx][5], ((sArmState  > 0) ? HIGH : LOW)); // OFF LED (green)
+    /*
+          // IF IN DEGREE SETTING MODE, INPUT-PULLUP ARM off WHEN LOW
+          if(inSettingsMode && sPinState == LOW) {
+            // shouldn't get an angle larger than 180...
+
+            armanglesDegrees[armidx] = readSettingsValues();
+            // write to EEPROM ?
+          }
+    */
+    // don't permit value larger than 180 degrees
+    armangle = (armanglesDegrees[armidx] <= 180) ? armanglesDegrees[armidx] : 180;
+
+    // SETTING (next set of 4 registers)
+    // if pin grounded (inverted on INPUT_PULLUP), set the relevant register
+    regs[((regStart + 4) + regOffset)] = ((sPinState == HIGH) ? 0 : armangle); // degree to drive to
 
 #ifdef DEBUG2
-  Serial.print("Post (Slave) ID: ");
-  Serial.println(slaveid);
-  Serial.print("Label (emum to int): ");
-  Serial.print(signalarms[armidx][1]);
-  Serial.print(", Arm #: ");
-  Serial.print(signalarms[armidx][2]);
-  Serial.print(", Input #: ");
-  Serial.print(signalarms[armidx][3]);
-  Serial.print(" Input status: ");
-  Serial.print(sPinState);
-  Serial.print(" Resgister Start: ");
-  Serial.print(regStart);
-  Serial.print(" Register Offset: ");
-  Serial.print(regOffset);
-  Serial.print(" Arm State: ");
-  Serial.print(sArmState);
-  Serial.print(" Set Reg: ");
-  Serial.println(regs[((regStart + 4) + regOffset)]);
-  Serial.print("Arm array index: ");
-  Serial.println(armidx);
-  Serial.print("Degree setting arm angle: ");
-  Serial.println(armangle);
-  Serial.println("------------------------------");
+    Serial.print("Post (Slave) ID: ");
+    Serial.println(slaveid);
+    Serial.print("Label (emum to int): ");
+    Serial.print(signalarms[armidx][1]);
+    Serial.print(", Arm #: ");
+    Serial.print(signalarms[armidx][2]);
+    Serial.print(", Input #: ");
+    Serial.print(signalarms[armidx][3]);
+    Serial.print(" Input status: ");
+    Serial.print(sPinState);
+    Serial.print(" Resgister Start: ");
+    Serial.print(regStart);
+    Serial.print(" Register Offset: ");
+    Serial.print(regOffset);
+    Serial.print(" Arm State: ");
+    Serial.print(sArmState);
+    Serial.print(" Set Reg: ");
+    Serial.println(regs[((regStart + 4) + regOffset)]);
+    Serial.print("Arm array index: ");
+    Serial.println(armidx);
+    Serial.print("Degree setting arm angle: ");
+    Serial.println(armangle);
+    Serial.println("------------------------------");
 #endif
+
+  }
 
 }
 
@@ -453,7 +511,7 @@ int setupRegisterSlaveMap() {
     Serial.print(i);
     Serial.print(" Slave IDs: ");
     Serial.println(slaveids[i]);
-    Serial.println("AA------------------------------AA");
+    Serial.println("------------------------------");
 #endif
   }
 
