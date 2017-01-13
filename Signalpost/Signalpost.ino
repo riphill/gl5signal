@@ -62,8 +62,8 @@
 #define VERSION 07012017
 
 // set to 1 for debugging over serial Monitor, 0 in normal operations
-// #define DEBUG 1
-// #define DEBUG2 1
+// #define DEBUG
+// #define DEBUG2
 // #define DEBUGMOVE
 
 // baudrate (for modbus, not USB serial port)
@@ -229,6 +229,8 @@ void loop() {
     Serial.println("-------------------");
     Serial.println(sID);
     Serial.print(i);
+    Serial.print("Automode: ");
+    Serial.println(AUTOMODE);
     Serial.print(" Manual line: ");
     Serial.println(i + j + 3);
     Serial.print(" REQUEST (READ) Register value: ");

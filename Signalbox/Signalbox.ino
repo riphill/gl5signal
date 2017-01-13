@@ -25,16 +25,16 @@
 */
 
 #include <SimpleModbusMaster.h>
-#define DEBUG
-// #define DEBUGCOMMS
+//#define DEBUG
+#define DEBUGCOMMS
 // #define DEBUG2
 
 //////////////////// SIGNALBOX SELECTION ////////////////////
 // uncomment ONE of these defines for Shildon, noble or middleton
 // #define __SHILDONBOX__
 // #define __NOBLEBOX__
-#define __MIDDLETONBOX__
-// #define __TESTBOX__
+//#define __MIDDLETONBOX__
+#define __TESTBOX__
 
 //////////////////// Port information ///////////////////
 #define timeout 1000 // longer than arm transition time+delay?
@@ -271,7 +271,6 @@ void setup()
 void loop()
 {
   modbus_update();
-  int incycle = 1;
   int armangle = DRIVEANGLE;
   int settingsSwState = digitalRead(settingsModePin);
 
@@ -292,9 +291,6 @@ void loop()
     }
 
     inSettingsMode = (settingsSwCount != 0) ? true : false;
-
-    Serial.print(settingsSwCount);
-    Serial.println(" settingsSwCount");
   }
   settingsSwLastState = settingsSwState;
   digitalWrite(settingsLEDPin, inSettingsMode);
@@ -302,12 +298,8 @@ void loop()
   // all lights on when entering settings mode, then step through
   if (inSettingsMode) {
     int ledState = LOW;
-    // light all lights
-    //if (settingsSwCount == 1) {
-    //  ledState = HIGH;
-    //}
 
-    //  i == 0 All LEDs on
+    // settingsSwCount == 1, All LEDs on
     // step through signalpost arms
     for ( int i = 0; i < NUMARMS; i++) {
       ledState = (settingsSwCount == 1 || (settingsSwCount - 2) == i) ? HIGH : LOW;
@@ -316,10 +308,6 @@ void loop()
       // OFF indicator (green LED)
       digitalWrite(signalarms[i][5], ledState);
       if (ledState) {
-        Serial.print(signalarms[i][4]);
-        Serial.print(" onPin ");
-        Serial.println(i);
-        Serial.println(slaveids[i]);
         // Light post LEDs
         for (int j = 0; j <= NUMPOSTS; j++) {
           if (signalarms[i][0] == slaveids[j]) {
@@ -331,20 +319,6 @@ void loop()
         }
       }
     }
-
-    /*
-      // set signalpost lights
-      for ( int i = 0; i < NUMPOSTS; i++) {
-      ledState = (settingsSwCount == 1 || settingsSwCount == (i - 2)) ? HIGH : LOW;
-      if (ledState) {
-        digitalWrite((commsStateStartPin + i), ledState);
-        Serial.print((commsStateStartPin + i));
-        Serial.print(" commsPin ");
-        Serial.println(i);
-      }
-      }
-    */
-
   }
 
 
@@ -482,7 +456,6 @@ void loop()
     Serial.println(armangle);
     Serial.println("------------------------------");
 #endif
-
   }
 
 }
