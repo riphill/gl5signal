@@ -1,6 +1,6 @@
 #include <SimpleModbusMaster.h>
 
-#define VERSION 07012017
+#define VERSION 07032017
 /*
    Middleton Box
    Arduino Sketch for Arduino/Genuino Mega 2560
@@ -33,8 +33,9 @@
 // uncomment ONE of these defines for Shildon, noble or middleton
 // #define __SHILDONBOX__
 // #define __NOBLEBOX__
-//#define __MIDDLETONBOX__
-#define __TESTBOX__
+// #define __MIDDLETONBOX__
+// #define __TESTBOX__
+#define __MIDDLETONBOX17__
 
 //////////////////// Port information ///////////////////
 #define timeout 1000 // longer than arm transition time+delay?
@@ -125,6 +126,29 @@ const unsigned int signalarms[8][6] = {
 };  // should start at pin 22 to avoid overlap with post indicator pins
 
 const unsigned int NUMPOSTS = 7;  // could be calculated, just not at this point
+
+#elif defined(__MIDDLETONBOX17__)
+enum {
+  M1,
+  M2,
+  M3,
+  M4,
+  M6,
+  M7,
+};
+
+// SLAVEID, SIGNAL NUMBER, ARM NUMBER, INPUT (analog pin A#), ON LED pin, OFF LED pin
+const unsigned int signalarms[6][6] = {
+  {1, M1, 1, 1, 30, 31},
+  {2, M2, 1, 2, 32, 33},
+  {3, M7, 1, 7, 42, 43},
+  {3, M6, 2, 6, 40, 41},
+  {4, M4, 1, 4, 36, 37},
+  {5, M3, 1, 3, 34, 35},
+};  
+
+const unsigned int NUMPOSTS = 5;  // could be calculated, just not at this point
+
 #else
 // Test box EXAMPLE - modify as necessary, uncomment #define to use
 // enum used to covert label to int in array
