@@ -1,6 +1,6 @@
 #include <SimpleModbusMaster.h>
 
-#define VERSION 07032017
+#define VERSION 07032017r1
 /*
    Middleton Box
    Arduino Sketch for Arduino/Genuino Mega 2560
@@ -35,6 +35,7 @@
 // #define __NOBLEBOX__
 // #define __MIDDLETONBOX__
 // #define __TESTBOX__
+// #define __SHILDONBOX17__
 #define __MIDDLETONBOX17__
 
 //////////////////// Port information ///////////////////
@@ -75,6 +76,25 @@ const unsigned int signalarms[2][6] {
 };
 
 const unsigned int NUMPOSTS = 2;
+#if defined(__SHILDONBOX17__)
+enum {
+  S2,
+  S4,
+  S5,
+  S9,
+  S10,
+};
+
+// SLAVEID, SIGNAL NUMBER, ARM NUMBER, INPUT (analog pin A#), ON LED pin, OFF LED pin
+const unsigned int signalarms[5][6] {
+  {1, S2, 1, 2, 30, 31},
+  {2, S4, 1, 4, 32, 33},
+  {3, S5, 1, 5, 34, 35},
+  {4, S9, 1, 9, 36, 37},
+  {5, S10, 1, 10, 38, 39},
+};
+
+const unsigned int NUMPOSTS = 5;
 #elif defined(__NOBLEBOX__)
 // Noble
 enum {
