@@ -76,7 +76,7 @@ const unsigned int signalarms[2][6] {
 };
 
 const unsigned int NUMPOSTS = 2;
-#if defined(__SHILDONBOX17__)
+#elif defined(__SHILDONBOX17__)
 enum {
   S2,
   S4,
